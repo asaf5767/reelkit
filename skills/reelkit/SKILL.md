@@ -87,7 +87,20 @@ check it.
 
 ## 3. Plan the beats
 
-Author `videos/myreel/plan.json`. Full schema: `references/plan-schema.md`.
+Optional first pass — get a draft instead of an empty file:
+
+```bash
+python3 scripts/reelkit.py plan --project videos/myreel --lang he --max-beats 14
+```
+
+Writes `plan.draft.json`. Its **timing is derived from real word gaps and is
+usually right**; its **kind guesses are not — expect to change about half**.
+Anything it cannot classify becomes an `image` slot with a drafted prompt, on
+purpose: an unfilled slot renders a loud placeholder that cannot ship by accident,
+whereas a wrong-but-plausible card can. Review it, replace every `TODO`, delete
+beats that do not earn a visual, then rename to `plan.json`.
+
+Or author `videos/myreel/plan.json` yourself. Full schema: `references/plan-schema.md`.
 How to choose what a beat should show: **`references/visual-beats.md` — read it,
 this is where reels are won or lost.** The one rule that matters most:
 
@@ -197,6 +210,7 @@ Full explanations and the RTL specifics: `references/rtl-and-fonts.md` and
 | File | Read it when |
 | --- | --- |
 | `references/plan-schema.md` | authoring `plan.json`; every kind and its `data` |
+| `scripts/reelkit.py plan` | a heuristic first draft when starting from a blank page |
 | `references/visual-beats.md` | choosing what each beat should show |
 | `references/image-slots.md` | wiring generated images in; writing prompts |
 | `references/rtl-and-fonts.md` | any non-Latin script, especially RTL |

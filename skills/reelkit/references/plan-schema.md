@@ -1,5 +1,10 @@
 # plan.json schema
 
+`reelkit.py plan --project DIR --lang he` writes a heuristic `plan.draft.json` to
+start from: beat boundaries come from real word gaps and are usually right, kinds
+are guessed and are often wrong, and anything unclassifiable becomes an `image`
+slot with a drafted prompt. Review it, replace the `TODO`s, rename to `plan.json`.
+
 One file describes the whole reel. `reelkit.py build` turns it into a HyperFrames
 composition. Nothing else is authored by hand.
 

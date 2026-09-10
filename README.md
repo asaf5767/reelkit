@@ -36,7 +36,9 @@ S=skills/reelkit/scripts/reelkit.py
 python3 $S scaffold --project videos/myreel --video raw.mp4 --upscale
 npx hyperframes@latest transcribe videos/myreel/audio.mp3 -d videos/myreel \
     --json --model large-v3 --language he
-# fix transcript.json, then author videos/myreel/plan.json
+# fix transcript.json
+python3 $S plan --project videos/myreel --lang he      # optional heuristic draft
+# review plan.draft.json, replace the TODOs, rename to plan.json
 python3 $S build --project videos/myreel
 cd videos/myreel && npx hyperframes@latest check public
 npx hyperframes@latest snapshot public --at "3,12,20,30" --no-end   # look at it
@@ -59,7 +61,7 @@ skills/reelkit/
   SKILL.md                 the workflow, and the hard rules
   references/              plan schema, visual-beat doctrine, RTL, captions,
                            image slots, audio, trimming, troubleshooting
-  scripts/reelkit.py       scaffold / build / doctor
+  scripts/reelkit.py       scaffold / plan / build / doctor
   scripts/cards.py         15 visual-beat kinds + seek-safe animation primitives
   assets/fonts/            Heebo (OFL) + Inter
   assets/brand/            colour and caption presets

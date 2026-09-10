@@ -475,6 +475,143 @@ window.__timelines["reelkit"] = tl;
     return 0
 
 
+# ------------------------------------------------------------------ plan draft
+# Heuristic first pass. It gets the *timing* right (clause boundaries from real
+# word gaps) and guesses the visual kind, which it will often get wrong - that is
+# expected and cheap to fix. Anything it cannot classify becomes an `image` slot
+# with a drafted prompt, because an unfilled image slot renders a loud placeholder
+# that cannot be shipped by accident, whereas a wrong-but-plausible card can.
+
+CUES = {
+    "chat":      ["?", "שאל", "שואל", "עונה", "ask", "asks", "answer", "reply", "question"],
+    "code":      ["קוד", "לכתוב", "פונקצי", "code", "function", "script", "commit", "api"],
+    "diff":      ["מאובטח", "בדיק", "לתקן", "review", "secure", "bug", "fix", "test"],
+    "checklist": ["שעות", "רשימ", "לוודא", "hours", "checklist", "steps", "every"],
+    "pipeline":  ["קודם", "אחר כך", "תהליך", "שלב", "first", "then", "after", "process", "step"],
+    "contrast":  ["לעומת", "במקום", "מצד שני", "instead of", "versus", "rather than"],
+    "stat":      [],   # digit-driven, see below
+}
+DIGIT = re.compile(r"\d")
+
+
+def draft_plan(project, lang, max_beats):
+    tpath = os.path.join(project, "transcript.json")
+    if not os.path.exists(tpath):
+        die("no transcript.json - transcribe first")
+    words = json.load(open(tpath, encoding="utf-8"))
+    if isinstance(words, dict):
+        words = words.get("words") or []
+    if not words:
+        die("transcript.json has no words")
+
+    # 1. clauses: split on real pauses and terminal punctuation
+    clauses, cur = [], []
+    for i, w in enumerate(words):
+        cur.append(w)
+        nxt = words[i + 1] if i + 1 < len(words) else None
+        end = nxt is None or (nxt["start"] - w["end"]) > 0.34 or w["text"].endswith((".", "?", "!", ","))
+        if end and cur:
+            clauses.append(cur); cur = []
+    if cur:
+        clauses.append(cur)
+
+    # 2. merge clauses into beats of roughly 4-7s, never splitting a clause
+    beats, acc = [], []
+    for cl in clauses:
+        acc.append(cl)
+        span = acc[-1][-1]["end"] - acc[0][0]["start"]
+        if span >= 5.5:
+            beats.append(acc); acc = []
+    if acc:
+        if beats and (acc[-1][-1]["end"] - acc[0][0]["start"]) < 2.0:
+            beats[-1].extend(acc)          # never leave a runt beat
+        else:
+            beats.append(acc)
+    if max_beats and len(beats) > max_beats:      # merge from the middle outwards
+        while len(beats) > max_beats:
+            spans = [(b[-1][-1]["end"] - b[0][0]["start"], i) for i, b in enumerate(beats[1:-1], 1)]
+            _, i = min(spans)
+            beats[i].extend(beats[i + 1]); del beats[i + 1]
+
+    flats = [[w for cl in grp for w in cl] for grp in beats]
+    starts = [round(f[0]["start"] - 0.08, 2) for f in flats]
+    out = []
+    for bi, flat in enumerate(flats):
+        text = " ".join(w["text"] for w in flat)
+        st = starts[bi]
+        en = round(flat[-1]["end"] + 0.30, 2)
+        if bi + 1 < len(flats):        # never overlap the next beat
+            en = min(en, round(starts[bi + 1] - 0.04, 2))
+        if en <= st + 0.5:
+            en = round(st + 0.5, 2)
+        low = text.lower()
+
+        kind, data = None, {}
+        if bi == 0:
+            kind, data = "hero", {"text": "TODO short hook, 2-4 words", "note": ""}
+        elif bi == len(beats) - 1:
+            kind, data = "follow", {"kicker": "TODO", "headline": "TODO the open loop",
+                                    "name": "TODO", "handle": "TODO", "initial": "A", "cta": "Follow"}
+        elif DIGIT.search(text):
+            nums = re.findall(r"\d+", text)
+            kind = "stat"
+            data = {"from": 0, "to": int(nums[-1]), "unit": "TODO", "note": ""}
+        else:
+            for k, cues in CUES.items():
+                if k != "stat" and any(c in low for c in cues):
+                    kind = k; break
+            if kind == "chat":
+                data = {"msgs": [{"side": "l", "text": "TODO"}, {"side": "r", "text": "TODO"}]}
+            elif kind == "code":
+                data = {"title": "TODO.ts", "lines": ["// TODO 3-5 short lines"]}
+            elif kind == "diff":
+                data = {"title": "review", "rows": [{"op": "-", "text": "TODO"}, {"op": "+", "text": "TODO"}],
+                        "chips": []}
+            elif kind == "checklist":
+                data = {"clock": True, "items": ["TODO", "TODO", "TODO"]}
+            elif kind == "pipeline":
+                data = {"nodes": ["TODO", "TODO", "TODO"]}
+            elif kind == "contrast":
+                data = {"from": "TODO", "to": "TODO"}
+
+        beat = {"id": f"b{bi+1:02d}", "start": st, "end": en,
+                "kind": kind or "image",
+                "mode": "stage" if (kind or "image") in ("chat", "code", "diff", "donut",
+                                                         "bars", "pipeline", "image", "follow") else "top",
+                "intent": text[:110],
+                "_said": text}
+        if kind:
+            beat["data"] = data
+        else:
+            beat["data"] = {"caption": ""}
+            beat["image"] = {
+                "mode": "replace", "alpha": False,
+                "prompt": (f"TODO describe an OBJECT or SCENE that depicts this idea - not the words. "
+                           f"Context: \"{text[:90]}\". Style: flat editorial vector, deep navy ground, "
+                           f"brand accents, no text."),
+            }
+        out.append(beat)
+
+    plan = {
+        "_draft": ("Heuristic first pass. Timing is derived from real word gaps and is usually right; "
+                   "the KIND guesses are not - expect to change about half. Replace every TODO, delete "
+                   "beats that do not earn a visual, and read references/visual-beats.md before keeping "
+                   "any beat whose card would just restate the sentence."),
+        "meta": {"title": "TODO", "lang": lang, "fps": 30, "width": 1080, "height": 1920},
+        "brand": "default",
+        "captions": {"enabled": True},
+        "framing": {"scale": 1.0, "origin": "50% 30%", "punches": []},
+        "beats": out,
+    }
+    dest = os.path.join(project, "plan.draft.json")
+    json.dump(plan, open(dest, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    todo = sum(1 for b in out if "image" in b or "TODO" in json.dumps(b, ensure_ascii=False))
+    print(f"reelkit: drafted {len(out)} beats -> {dest}")
+    print(f"reelkit: {todo} beat(s) still need content. Review, rename to plan.json, then build.")
+    print("reelkit: timing comes from the transcript and is usually right; the kind guesses are not.")
+    return 0
+
+
 # ------------------------------------------------------------------ scaffold
 def probe_duration(path):
     r = sh(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
@@ -583,12 +720,16 @@ def main():
     s.add_argument("--width", type=int, default=1080); s.add_argument("--height", type=int, default=1920)
     s.add_argument("--upscale", action="store_true")
     b = sub.add_parser("build"); b.add_argument("--project", required=True)
+    d = sub.add_parser("plan"); d.add_argument("--project", required=True)
+    d.add_argument("--lang", default="en"); d.add_argument("--max-beats", type=int, default=0)
     sub.add_parser("doctor")
     a = ap.parse_args()
     if a.cmd == "scaffold":
         return scaffold(a.project, a.video, a.fps, a.width, a.height, a.upscale)
     if a.cmd == "build":
         return build(a.project)
+    if a.cmd == "plan":
+        return draft_plan(a.project, a.lang, a.max_beats)
     return doctor()
 
 
