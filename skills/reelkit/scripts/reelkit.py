@@ -391,6 +391,8 @@ def build(project):
             tls.append(f"tl.to({sel},{{opacity:0,duration:0.12,ease:'power2.in'}},{an.q(e-0.12)});")
             tls.append(f"tl.set({sel},{{visibility:'hidden'}},{e});")
 
+    sfx_tags, sfx_names = resolve_sfx(plan, pub, dur, an)
+
     # ---- document ---------------------------------------------------------
     # Emit @font-face only for files that actually exist, whatever their script
     # suffix - hardcoding "-hebrew" would break every other language.
@@ -430,6 +432,7 @@ def build(project):
  data-duration="{dur}" data-track-index="1"></video></div>
 <audio id="source-audio" src="input-video.mp4" data-start="0" data-duration="{dur}"
  data-track-index="10" data-volume="{plan.get('audio',{}).get('sourceVolume',1)}"></audio>
+{"".join(sfx_tags)}
 <div class="bottomveil"></div>
 {"".join(hosts)}
 <script src="vendor/gsap.min.js"></script>
@@ -473,6 +476,127 @@ window.__timelines["reelkit"] = tl;
         print(f"  ! missing image: public/images/{m}.png")
     print("reelkit: wrote public/index.html, visuals.json, BEATS.md")
     return 0
+
+
+
+# ------------------------------------------------------------------ sfx
+SFX_SEARCH = [
+    "~/.claude/skills/media-use/audio/assets/sfx",
+    "~/.agents/skills/media-use/audio/assets/sfx",
+]
+
+
+def find_sfx_dir(explicit=None):
+    """Locate the media-use bundled SFX library. Not vendored into reelkit: the
+    Pixabay licence covers using these inside a rendered video, but not
+    re-hosting the raw files in a public repo."""
+    cands = ([explicit] if explicit else []) + SFX_SEARCH
+    for c in cands:
+        d = os.path.expanduser(c)
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+PEAK_RE = re.compile(r"max_volume:\s*(-?[0-9.]+) dB")
+
+
+def sfx_gain(path, target_db=-11.0):
+    """Per-file peak normalisation. The bundled library spans ~32 dB between the
+    quietest and loudest file, so a flat `volume` means wildly different perceived
+    levels. Normalising to a target peak makes `volume` mean one thing."""
+    r = sh(["ffmpeg", "-i", path, "-af", "volumedetect", "-f", "null", "-"])
+    m = PEAK_RE.search(r.stderr or "")
+    if not m:
+        return 1.0
+    return max(0.05, min(6.0, 10 ** ((target_db - float(m.group(1))) / 20.0)))
+
+
+SIL_RE = re.compile(r"silence_end:\s*([0-9.]+)")
+
+
+def sfx_lead_silence(path):
+    """Several bundled files open with ~0.4 s of digital silence. Starting the
+    clip at the cue time therefore plays the transient LATE and it misses the
+    visual hit. Measure the lead-in and start the clip that much earlier."""
+    r = sh(["ffmpeg", "-i", path, "-af", "silencedetect=n=-45dB:d=0.15", "-f", "null", "-"])
+    err = r.stderr or ""
+    if "silence_start: 0" not in err:
+        return 0.0
+    m = SIL_RE.search(err)
+    return min(1.0, float(m.group(1))) if m else 0.0
+
+
+def sfx_duration(sdir, name, fname):
+    man = os.path.join(sdir, "manifest.json")
+    if os.path.exists(man):
+        try:
+            m = json.load(open(man, encoding="utf-8"))
+            if name in m and m[name].get("duration"):
+                return float(m[name]["duration"])
+        except Exception:
+            pass
+    return probe_duration(os.path.join(sdir, fname))
+
+
+def resolve_sfx(plan, pub, dur, an):
+    """Collect every cue, copy the files in, and interval-partition them across
+    track indices so two overlapping cues never share a track."""
+    cues = []
+    # relative level: 1.0 == the normalised target, so 0.8 is "a bit under"
+    default_vol = float(plan.get("audio", {}).get("sfxVolume", 0.8))
+    for beat in plan["beats"]:
+        for c in beat.get("sfx", []) or []:
+            c = {"name": c} if isinstance(c, str) else dict(c)
+            cues.append({"name": c["name"],
+                         "at": an.q(float(beat["start"]) + float(c.get("at", 0))),
+                         "volume": float(c.get("volume", default_vol))})
+    for c in plan.get("audio", {}).get("sfx", []) or []:
+        cues.append({"name": c["name"], "at": an.q(float(c["at"])),
+                     "volume": float(c.get("volume", default_vol))})
+    if not cues:
+        return [], []
+
+    sdir = find_sfx_dir(plan.get("audio", {}).get("sfxDir"))
+    if not sdir:
+        print("reelkit: ! sfx requested but no library found - install the HyperFrames "
+              "media-use skill, or set audio.sfxDir. Continuing without sfx.")
+        return [], []
+
+    os.makedirs(os.path.join(pub, "sfx"), exist_ok=True)
+    files, out, tracks = {}, [], []          # tracks[i] = end time of last cue on track i
+    for c in sorted(cues, key=lambda x: x["at"]):
+        if c["name"] not in files:
+            src = os.path.join(sdir, f"{c['name']}.mp3")
+            if not os.path.exists(src):
+                print(f"reelkit: ! no sfx named '{c['name']}' - skipped")
+                files[c["name"]] = None
+            else:
+                dst = os.path.join(pub, "sfx", f"{c['name']}.mp3")
+                shutil.copy2(src, dst)
+                files[c["name"]] = (f"{c['name']}.mp3",
+                                    sfx_duration(sdir, c["name"], f"{c['name']}.mp3"),
+                                    sfx_gain(dst, float(plan.get("audio", {}).get("sfxTargetDb", -11.0))),
+                                    sfx_lead_silence(dst))
+        got = files[c["name"]]
+        if not got:
+            continue
+        fname, d, gain, lead = got
+        at = max(0.0, an.q(c["at"] - lead))     # land the transient on the cue
+        d = min(d, max(0.05, dur - at))               # never run past the media
+        if d <= 0.05:
+            continue
+        ti = next((i for i, endt in enumerate(tracks) if endt <= at), len(tracks))
+        if ti == len(tracks):
+            tracks.append(0.0)
+        tracks[ti] = at + d
+        # id is REQUIRED: the renderer discovers media by id, and an <audio>
+        # without one renders completely silent (lint: media_missing_id).
+        out.append(f'<audio id="sfx-{len(out):03d}-{c["name"]}" class="clip" src="sfx/{fname}" '
+                   f'data-start="{at:.4f}" data-duration="{d:.4f}" '
+                   f'data-track-index="{20+ti}" data-volume="{round(min(1.0, gain*c["volume"]),3)}"></audio>')
+    print(f"reelkit: {len(out)} sfx cue(s) across {len(tracks)} track(s)")
+    return out, sorted({c["name"] for c in cues})
 
 
 # ------------------------------------------------------------------ plan draft

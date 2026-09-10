@@ -175,9 +175,21 @@ ffmpeg -y -i output.mp4 -c:v libx264 -preset medium -crf 23 -profile:v high \
 
 ## 8. Audio
 
-`BEATS.md` lists every card-entry hit point. Hand it to the author with the silent
-master and they can land a track in minutes. The automated music/SFX path is
-**experimental and unverified** — see `references/audio.md` before enabling it.
+**Sound effects are supported and tested.** Add cues to any beat:
+
+```jsonc
+"sfx": [ { "name": "pop", "at": 0.15 }, { "name": "chime", "at": 2.0 } ]
+```
+
+They resolve from the library bundled with HyperFrames' `media-use` skill — no key,
+no login. reelkit normalises each file's peak (the library spans ~32 dB, so a flat
+volume means nothing) and compensates for leading silence (several files open with
+~0.4 s of it and would otherwise fire late). Eight to twelve cues per 90 s is
+plenty; more is exhausting.
+
+**Music is not included** — no licensed catalogue is available here. `BEATS.md`
+lists every card-entry hit point so you can land a track in any editor in minutes.
+See `references/audio.md`.
 
 ---
 
@@ -215,7 +227,7 @@ Full explanations and the RTL specifics: `references/rtl-and-fonts.md` and
 | `references/image-slots.md` | wiring generated images in; writing prompts |
 | `references/rtl-and-fonts.md` | any non-Latin script, especially RTL |
 | `references/captions.md` | changing caption grouping, style or placement |
-| `references/audio.md` | music beds, SFX, the beat sheet |
+| `references/audio.md` | SFX cues and levels, the beat sheet, why there is no music |
 | `references/trimming.md` | the take needs cutting or reordering |
 | `references/troubleshooting.md` | anything renders wrong, black, frozen or tofu |
 

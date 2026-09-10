@@ -75,6 +75,10 @@ class Anim:
         return (f"tl.fromTo({sel},{{scale:1}},{{scale:{sc},duration:{d},"
                 f"yoyo:true,repeat:{reps},ease:'power1.inOut'}},{self.q(t)});")
 
+    def move(self, sel, t, d, frm, to, ease="power1.inOut"):
+        return (f"tl.fromTo({sel},{{x:{frm[0]},y:{frm[1]}}},"
+                f"{{x:{to[0]},y:{to[1]},duration:{d},ease:'{ease}'}},{self.q(t)});")
+
     def kenburns(self, sel, t, d, a=1.0, b=1.08):
         return (f"tl.fromTo({sel},{{scale:{a}}},{{scale:{b},duration:{d},ease:'none'}},{self.q(t)});")
 
@@ -366,6 +370,8 @@ def k_doodle(cid, d, br, an, st, en):
         elif kind == "draw":  g.append(an.draw(sel, t, dd, a.get("length", 300)))
         elif kind == "spin":  g.append(an.spin(sel, t, dd, a.get("from", 0), a.get("to", 360), a.get("origin", "150 150")))
         elif kind == "pulse": g.append(an.pulse(sel, t, dd, a.get("scale", 1.1), a.get("repeat", 5)))
+        elif kind == "move":  g.append(an.move(sel, t, dd, a.get("from", [0, 0]), a.get("to", [0, 0]),
+                                               a.get("ease", "power1.inOut")))
     if d.get("caption"):
         g.append(an.chars(S(cid, cid + "-t"), st + float(d.get("captionAt", 0.6)), 0.42, 0.03))
     return b, g

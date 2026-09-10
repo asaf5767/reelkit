@@ -16,12 +16,13 @@ into named boxes while an agent that cannot still ships a finished reel.
 Most caption tooling is built and tested in English, and most "AI visuals" turn out
 to be the speaker's own sentence in a bigger font. reelkit is opinionated about both:
 RTL is a first-class case, and a visual has to *depict something* the captions do
-not already say.
+not already say. It also places timed sound effects, normalising their levels and
+compensating for the leading silence several stock files carry.
 
 ## Install
 
 ```bash
-git clone https://github.com/<you>/reelkit
+git clone https://github.com/asaf5767/reelkit
 cd reelkit
 npx hyperframes@latest skills update talking-head-recut   # render deps + gsap
 python3 skills/reelkit/scripts/reelkit.py doctor

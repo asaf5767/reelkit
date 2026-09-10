@@ -40,3 +40,18 @@ npx hyperframes@latest check public
 - The first pass put the cards over the speaker's face. They moved to the empty
   wall above his head and the reel improved more from that one change than from
   any individual visual.
+
+## Sound
+
+26 SFX cues: soft clicks on every ping-pong hit, pops as chat bubbles land, pings
+on the checklist ticks, whooshes into the chart beats, a bass impact on the
+"נעלם → זז" landing, and a sparkle on the end card. All from the library bundled
+with HyperFrames' `media-use` skill.
+
+Two corrections were needed and are now automatic. Measured in the first render,
+`ping` was inaudible at the same `volume` where `pop` was obvious — the library
+spans about 32 dB, so levels are now peak-normalised. And `chime` and `typing`
+both open with ~0.4 s of silence, so they fired late and missed their visual hit;
+the clip now starts that much earlier.
+
+There is no music. `BEATS.md` carries the hit points for adding one.

@@ -66,7 +66,19 @@
         "prompt": "A single phone notification banner floating in dark space, minimal, orange spark glyph, no text legible. Flat vector, deep navy background, transparent.",
         "alpha": true,
         "mode": "behind"
-      }
+      },
+      "sfx": [
+        {
+          "name": "pop",
+          "at": 0.15,
+          "volume": 0.85
+        },
+        {
+          "name": "chime",
+          "at": 2.0,
+          "volume": 0.8
+        }
+      ]
     },
     {
       "id": "b02",
@@ -109,6 +121,366 @@
             "anim": "fade",
             "at": 0.85,
             "dur": 0.2
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 1.0,
+            "dur": 0.37,
+            "from": [
+              280,
+              300
+            ],
+            "to": [
+              450,
+              150
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 1.37,
+            "dur": 0.37,
+            "from": [
+              450,
+              150
+            ],
+            "to": [
+              620,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 1.74,
+            "dur": 0.333,
+            "from": [
+              620,
+              300
+            ],
+            "to": [
+              450,
+              174
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 2.073,
+            "dur": 0.333,
+            "from": [
+              450,
+              174
+            ],
+            "to": [
+              280,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 2.406,
+            "dur": 0.3,
+            "from": [
+              280,
+              300
+            ],
+            "to": [
+              450,
+              150
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 2.706,
+            "dur": 0.3,
+            "from": [
+              450,
+              150
+            ],
+            "to": [
+              620,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 3.005,
+            "dur": 0.27,
+            "from": [
+              620,
+              300
+            ],
+            "to": [
+              450,
+              174
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 3.275,
+            "dur": 0.27,
+            "from": [
+              450,
+              174
+            ],
+            "to": [
+              280,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 3.545,
+            "dur": 0.243,
+            "from": [
+              280,
+              300
+            ],
+            "to": [
+              450,
+              150
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 3.788,
+            "dur": 0.243,
+            "from": [
+              450,
+              150
+            ],
+            "to": [
+              620,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 4.03,
+            "dur": 0.218,
+            "from": [
+              620,
+              300
+            ],
+            "to": [
+              450,
+              174
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 4.249,
+            "dur": 0.218,
+            "from": [
+              450,
+              174
+            ],
+            "to": [
+              280,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 4.467,
+            "dur": 0.197,
+            "from": [
+              280,
+              300
+            ],
+            "to": [
+              450,
+              150
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 4.664,
+            "dur": 0.197,
+            "from": [
+              450,
+              150
+            ],
+            "to": [
+              620,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 4.861,
+            "dur": 0.177,
+            "from": [
+              620,
+              300
+            ],
+            "to": [
+              450,
+              174
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 5.038,
+            "dur": 0.177,
+            "from": [
+              450,
+              174
+            ],
+            "to": [
+              280,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 5.215,
+            "dur": 0.17,
+            "from": [
+              280,
+              300
+            ],
+            "to": [
+              450,
+              150
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 5.385,
+            "dur": 0.17,
+            "from": [
+              450,
+              150
+            ],
+            "to": [
+              620,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 5.555,
+            "dur": 0.17,
+            "from": [
+              620,
+              300
+            ],
+            "to": [
+              450,
+              174
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 5.725,
+            "dur": 0.17,
+            "from": [
+              450,
+              174
+            ],
+            "to": [
+              280,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 5.895,
+            "dur": 0.17,
+            "from": [
+              280,
+              300
+            ],
+            "to": [
+              450,
+              150
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 6.065,
+            "dur": 0.17,
+            "from": [
+              450,
+              150
+            ],
+            "to": [
+              620,
+              300
+            ],
+            "ease": "power2.in"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 6.235,
+            "dur": 0.17,
+            "from": [
+              620,
+              300
+            ],
+            "to": [
+              450,
+              174
+            ],
+            "ease": "power2.out"
+          },
+          {
+            "id": "b02-ball",
+            "anim": "move",
+            "at": 6.405,
+            "dur": 0.17,
+            "from": [
+              450,
+              174
+            ],
+            "to": [
+              280,
+              300
+            ],
+            "ease": "power2.in"
           }
         ],
         "width": 980
@@ -122,7 +494,44 @@
           1000,
           620
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "click-soft",
+          "at": 1.74,
+          "volume": 0.75
+        },
+        {
+          "name": "click-soft",
+          "at": 2.406,
+          "volume": 0.75
+        },
+        {
+          "name": "click-soft",
+          "at": 3.005,
+          "volume": 0.75
+        },
+        {
+          "name": "click-soft",
+          "at": 3.545,
+          "volume": 0.75
+        },
+        {
+          "name": "click-soft",
+          "at": 4.03,
+          "volume": 0.75
+        },
+        {
+          "name": "click-soft",
+          "at": 4.467,
+          "volume": 0.75
+        },
+        {
+          "name": "click-soft",
+          "at": 4.861,
+          "volume": 0.75
+        }
+      ]
     },
     {
       "id": "b03",
@@ -158,7 +567,24 @@
             "text": "זה הרעיון. בוא נתכנן"
           }
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "pop",
+          "at": 0.25,
+          "volume": 0.85
+        },
+        {
+          "name": "pop",
+          "at": 1.35,
+          "volume": 0.85
+        },
+        {
+          "name": "pop",
+          "at": 2.45,
+          "volume": 0.85
+        }
+      ]
     },
     {
       "id": "b04",
@@ -175,7 +601,24 @@
           "ההחלטות",
           "הקצוות"
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "ping",
+          "at": 0.55,
+          "volume": 0.8
+        },
+        {
+          "name": "ping",
+          "at": 2.1,
+          "volume": 0.8
+        },
+        {
+          "name": "ping",
+          "at": 3.65,
+          "volume": 0.8
+        }
+      ]
     },
     {
       "id": "b05",
@@ -193,7 +636,14 @@
           "  <span class='kw'>return</span> verify(plan);",
           "}"
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "typing",
+          "at": 0.3,
+          "volume": 0.55
+        }
+      ]
     },
     {
       "id": "b06",
@@ -236,7 +686,19 @@
             "icon": "shield"
           }
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "whoosh-short",
+          "at": 0.05,
+          "volume": 0.8
+        },
+        {
+          "name": "ping",
+          "at": 1.95,
+          "volume": 0.8
+        }
+      ]
     },
     {
       "id": "b07",
@@ -274,7 +736,14 @@
             "color": "#FF7A1A"
           }
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "whoosh-short",
+          "at": 0.05,
+          "volume": 0.8
+        }
+      ]
     },
     {
       "id": "b09",
@@ -326,7 +795,29 @@
           "מאות החלטות",
           "הוכחה שזה עובד"
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "click",
+          "at": 0.3,
+          "volume": 0.75
+        },
+        {
+          "name": "click",
+          "at": 2.25,
+          "volume": 0.75
+        },
+        {
+          "name": "click",
+          "at": 4.2,
+          "volume": 0.75
+        },
+        {
+          "name": "click",
+          "at": 6.15,
+          "volume": 0.75
+        }
+      ]
     },
     {
       "id": "b11",
@@ -338,7 +829,14 @@
       "data": {
         "from": "נעלם",
         "to": "זז"
-      }
+      },
+      "sfx": [
+        {
+          "name": "impact-bass-1",
+          "at": 0.95,
+          "volume": 0.85
+        }
+      ]
     },
     {
       "id": "b12",
@@ -385,7 +883,14 @@
             "label": "לחשוב · להגדיר · לתגר · לבדוק"
           }
         ]
-      }
+      },
+      "sfx": [
+        {
+          "name": "whoosh-short",
+          "at": 0.05,
+          "volume": 0.8
+        }
+      ]
     },
     {
       "id": "b13",
@@ -417,7 +922,19 @@
         "handle": "על AI, קוד ואנשים",
         "initial": "א",
         "cta": "עקבו"
-      }
+      },
+      "sfx": [
+        {
+          "name": "sparkle",
+          "at": 0.1,
+          "volume": 0.9
+        }
+      ]
     }
-  ]
+  ],
+  "audio": {
+    "sourceVolume": 1,
+    "sfxVolume": 0.8,
+    "sfxTargetDb": -11.0
+  }
 }

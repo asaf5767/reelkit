@@ -32,7 +32,13 @@ composition. Nothing else is authored by hand.
     "punches": [ { "at": 3.95, "from": 1.0, "to": 1.06, "dur": 0.9 } ]
   },
 
-  "audio": { "sourceVolume": 1 },
+  "audio": {
+    "sourceVolume": 1,       // the speaking voice
+    "sfxVolume": 0.8,        // default relative level for cues (1.0 == target)
+    "sfxTargetDb": -11.0,    // peak each sfx file is normalised to
+    "sfxDir": null,          // override the auto-discovered media-use library
+    "sfx": []                // global cues with absolute "at"
+  },
 
   "beats": [
     {
@@ -42,6 +48,7 @@ composition. Nothing else is authored by hand.
       "mode": "top",         // "top" | "stage" | "full"
       "intent": "Hook - a notification claims AI took the job",
       "data": { /* kind-specific, see below */ },
+      "sfx": [ { "name": "pop", "at": 0.15, "volume": 0.85 } ],   // at = relative to beat start
       "image": {             // optional image slot
         "prompt": "…",
         "mode": "replace",   // "replace" the drawn card, or sit "behind" it
@@ -132,7 +139,9 @@ placeholder carrying the prompt — visible, lintable, impossible to ship by acc
   "anims": [ { "id": "elementId", "anim": "pop", "at": 0.1, "dur": 0.5 } ] }
 ```
 `{A0}`…`{A4}` inside the SVG are substituted with brand accents. Animations:
-`pop fade slide draw spin pulse`. `slide` takes `dx`/`dy`; `draw` takes `length`
+`pop fade slide draw spin pulse move`. `slide` takes `dx`/`dy`; `move` takes
+`from`/`to` as `[x, y]` pairs and is how you animate a path (a bouncing ball, a
+travelling marker); `draw` takes `length`
 and needs `stroke-dasharray="<length>"` in the markup; `spin` takes `from`/`to`
 and `origin` in **viewBox user units**.
 
