@@ -1,0 +1,13 @@
+{
+  "name": "reelkit",
+  "owner": { "name": "Assaf Akiva" },
+  "plugins": [
+    {
+      "name": "reelkit",
+      "source": "./",
+      "description": "Captioned, visual-rich vertical reels from a talking-head clip. RTL-safe captions, a visual-beat card library, and an image-slot contract so an image-capable agent can drop real artwork into named boxes. Thin layer on HyperFrames.",
+      "license": "MIT",
+      "skills": ["./skills/reelkit"]
+    }
+  ]
+}

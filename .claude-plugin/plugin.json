@@ -1,0 +1,8 @@
+{
+  "name": "reelkit",
+  "description": "Turn a raw talking-head clip into a finished vertical reel: word-level captions in sync with speech plus timed visual beats (mock UI, diagrams, charts, drawn SVG, or generated images) over untouched footage. RTL-safe. Renders through HyperFrames.",
+  "version": "0.1.0",
+  "author": { "name": "Assaf Akiva" },
+  "license": "MIT",
+  "skills": ["./skills/reelkit"]
+}

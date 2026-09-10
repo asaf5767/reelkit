@@ -1,0 +1,9 @@
+{
+  "name": "assaf",
+  "accents": ["#FF7A1A", "#4CC9F0", "#A78BFA", "#4ADE80", "#FB7185"],
+  "bg": "#05060a", "text": "#ffffff",
+  "font": "Heebo", "latinFont": "Inter",
+  "captionSize": 76, "captionMaxWords": 3, "captionMaxChars": 15,
+  "captionTop": 1500, "captionHeight": 360,
+  "captionPlate": "rgba(5,6,10,.60)", "captionIdle": "#FFFFFF"
+}
