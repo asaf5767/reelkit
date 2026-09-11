@@ -111,11 +111,26 @@ def icon(name, cls="ico"):
     return f'<svg viewBox="0 0 24 24" class="{cls}" aria-hidden="true">{ICON.get(name, ICON["spark"])}</svg>'
 
 
+def text_direction(text):
+    """Direction of the text itself, from its first strong directional
+    character. A Latin headline in a Hebrew (RTL) project must lay out LTR -
+    per-char spans under dir=rtl render the whole string mirrored."""
+    import unicodedata
+    for ch in str(text):
+        bidi = unicodedata.bidirectional(ch)
+        if bidi == "L":
+            return "ltr"
+        if bidi in ("R", "AL"):
+            return "rtl"
+    return None
+
+
 def kinetic(eid, text, cls, direction="rtl"):
     """Split into per-word spans (nowrap) containing per-char spans.
 
     Per-CHARACTER inline-block spans alone let a word break across lines, which
     looks like a rendering bug in any language and is unreadable in Hebrew."""
+    direction = text_direction(text) or direction
     parts = []
     for tok in str(text).split(" "):
         inner = "".join(f'<span class="char">{esc(ch)}</span>' for ch in tok)
