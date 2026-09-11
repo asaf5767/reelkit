@@ -124,7 +124,11 @@ def card_css(cid, mode, br, layout=None):
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
     top = (layout or {}).get("top")
-    pad = f"{int(top)}px 0 0 0" if top is not None else ("300px 0 0 0" if mode == "stage" else "140px 0 0 0")
+    # `full` sits at 300 like `stage`, not 140 like `top`: its scrim is
+    # near-opaque, so the card owns the frame and crowding the top edge leaves a
+    # large dead band below it. plan-schema.md has documented 300 all along.
+    pad = (f"{int(top)}px 0 0 0" if top is not None
+           else ("300px 0 0 0" if mode in ("stage", "full") else "140px 0 0 0"))
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
