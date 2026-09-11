@@ -29,6 +29,12 @@ try:
 except Exception:
     HAVE_CV2 = False
 
+try:
+    from playwright.sync_api import sync_playwright
+    HAVE_PW = True
+except Exception:
+    HAVE_PW = False
+
 
 def sh(cmd):
     return subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=True, text=True)
@@ -77,7 +83,6 @@ html,body{margin:0;width:%(w)dpx;height:%(h)dpx;overflow:hidden;}
 
 def measure_cards(project, plan, W, H):
     """Lay out every card fragment in a real browser and read its settled box."""
-    from playwright.sync_api import sync_playwright
     pub = os.path.join(project, "public")
     idx = open(os.path.join(pub, "index.html"), encoding="utf-8").read()
     theme = idx.split("<style>", 1)[1].split("</style>", 1)[0]
@@ -150,13 +155,16 @@ def run(project, as_json, fix):
     times = {b["id"]: [b["start"] + (b["end"] - b["start"]) * f for f in (0.2, 0.5, 0.8)]
              for b in plan["beats"]}
     faces = detect_faces(vid, times, W, H) if os.path.exists(vid) else {}
-    boxes = measure_cards(project, plan, W, H)
+    boxes = measure_cards(project, plan, W, H) if HAVE_PW else {}
 
     findings, report = [], []
     for b in plan["beats"]:
         cid = b["id"]; box = boxes.get(cid); face = faces.get(cid)
         mode = b.get("mode", "top")
         row = {"id": cid, "kind": b["kind"], "mode": mode, "box": box, "face": face}
+        if not HAVE_PW:
+            report.append(row)
+            continue
         if box:
             if box["x"] < -2 or box["y"] < -2 or box["x"] + box["w"] > W + 2 or box["y"] + box["h"] > H + 2:
                 findings.append(("ERROR", cid, "card extends outside the canvas - content will be clipped"))
@@ -206,7 +214,7 @@ def run(project, as_json, fix):
             findings.append(("ERROR", bs[i]["id"],
                              f"overlaps {bs[i+1]['id']} ({bs[i]['end']} > {bs[i+1]['start']})"))
 
-    out = {"canvas": {"w": W, "h": H}, "faceDetection": HAVE_CV2,
+    out = {"canvas": {"w": W, "h": H}, "faceDetection": HAVE_CV2, "cardGeometry": HAVE_PW,
            "beats": report,
            "findings": [{"level": l, "id": i, "message": m} for l, i, m in findings]}
     json.dump(out, open(os.path.join(project, "verify.json"), "w", encoding="utf-8"),
@@ -220,6 +228,8 @@ def run(project, as_json, fix):
     if as_json:
         print(json.dumps(out, ensure_ascii=False, indent=2))
     else:
+        if not HAVE_PW:
+            print("reelkit verify: playwright not installed - card geometry checks skipped")
         if not HAVE_CV2:
             print("reelkit verify: opencv-python not installed - face checks skipped\n")
         for r in report:

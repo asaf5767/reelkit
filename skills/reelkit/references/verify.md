@@ -16,7 +16,9 @@ after `build` and before `render` — it takes seconds, a render takes minutes.
 **Card geometry — measured, not guessed.** Every card fragment is laid out in a
 headless browser at the real canvas size and its settled bounding box read from
 the DOM. Card height depends on content, so computing it from CSS would be a
-guess; this is the actual number.
+guess; this is the actual number. Needs `playwright` (pip) with a chromium
+browser installed; without it the geometry and collision checks are skipped with
+a note, and the plan-level checks (beat overlap, captions vs mouth) still run.
 
 **Face position.** The speaker's head box is detected in the source footage at
 three points across each beat and the median taken. Needs `opencv-python`; if it
