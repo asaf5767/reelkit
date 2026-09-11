@@ -43,10 +43,19 @@ Two details matter, and getting them wrong makes the check useless:
 Without the mode rule every `stage` beat in a normal reel reports as a defect,
 which trains you to ignore the tool.
 
+**`split` is checked against the panel, not the card.** The light panel is opaque,
+so anything under it is gone — the check measures the panel rectangle
+(`layout.canvas`, default 56% of frame height) against the speaker's eye line and
+against the caption band. Error at 12% face overlap, warning at 4%, and any reach
+into the caption band is an error. Builder and checker call the same
+`split_canvas_h()`, so they cannot disagree about where the panel sits.
+
 ## `--fix`
 
 Applies only remedies that are mechanical: a `top`-mode card covering the eyes or
-mouth gets a `layout.top` that places it above the head, when it fits. Everything
+mouth gets a `layout.top` that places it above the head, when it fits; a `split`
+panel clipping the eyes gets a `layout.canvas` in pixels that stops above the eye
+line, when at least 320px of panel remains. Everything
 else is reported, never silently rewritten — a card that overlaps the caption band
 might want to move, shrink, change mode or be deleted, and only a person or an
 agent with the context can say which.

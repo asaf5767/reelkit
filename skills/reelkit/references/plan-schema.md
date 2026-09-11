@@ -74,12 +74,47 @@ composition. Nothing else is authored by hand.
 | `top` | light gradient | y ≈ 140 | compact beats while the speaker carries the moment |
 | `stage` | heavy gradient | y ≈ 300 | the visual is the point; the speaker recedes |
 | `full` | moderate gradient | y ≈ 220 | title cards, outros, anything that owns the frame |
+| `split` | none | inside the canvas | a light panel over the top of the frame, speaker undimmed below |
 
 The speaker stays visible in every mode by default. For an intentional
 full-frame takeover - the speaker should vanish behind the card - set
 `"takeover": true` on a `full` beat; its scrim turns near-opaque.
 
 Beats must not overlap in time. `end` is clamped to the media duration.
+
+### `split`
+
+`split` divides the frame instead of layering over it: an opaque light panel
+occupies the top, the footage plays untouched below it, and there is no scrim.
+It reads as a different register from the other three modes, so use it for the
+structural beats of a reel - the point being made, not the decoration around it.
+
+```jsonc
+{
+  "id": "b04", "start": 12.0, "end": 17.4,
+  "mode": "split",
+  "kind": "canvas",
+  "layout": { "canvas": 0.56 },        // fraction of frame height, or explicit px
+  "counterLabel": "2 / 5",             // optional; default is "i / n" over split beats
+  "data": { "kicker": "…", "headline": "…" }
+}
+```
+
+- `layout.canvas` defaults to **0.56** (56% of frame height). A value `<= 1` is a
+  fraction, anything larger is pixels. Clamped to leave room for the speaker.
+- Split beats **hard-cut** in and out - no cross-fade. Two adjacent split beats
+  therefore feel like slides advancing.
+- The counter pill sits at the bottom start edge of the panel and numbers the
+  split beats in order (`1 / 3`, `2 / 3`…). `i / n` rather than an English word
+  so it needs no translation; override per beat with `counterLabel`.
+- Panel colours come from the brand: `canvasBg`, `canvasText`, `canvasMuted`.
+- `kind: "canvas"` is the only kind designed for the light panel. Every other
+  kind assumes a dark surface and will render low-contrast inside it.
+
+The default 56% is measured from a reference cut, and it is not universal - on
+footage where the speaker sits high in frame it clips the eye line. `verify`
+measures this per project and `verify --fix` lowers `layout.canvas` to a value
+that clears the eyes, so do not hand-tune the default: run the gate.
 
 ## kinds
 
@@ -134,6 +169,11 @@ Percentages should total 100.
 ### `follow` — end card
 `{ "kicker": "…", "headline": "…", "name": "…", "handle": "…",
    "initial": "A", "cta": "Follow" }`
+
+### `canvas` — kicker + headline on the light split panel
+`{ "kicker": "…", "headline": "…" }`
+Only for `mode: "split"`. Start-aligned, so it reads correctly in both
+directions. Keep the headline to a few words: it sets at 96px.
 
 ### `image` — a generated image is the whole beat
 `{ "caption": "…", "frame": "soft", "zoom": 1.08 }`

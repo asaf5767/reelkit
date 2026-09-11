@@ -148,6 +148,19 @@ def lang_direction(lang):
     return "rtl" if (base in RTL_LANGS or base.split("-")[0] in RTL_LANGS) else "ltr"
 
 
+def split_canvas_h(layout, H):
+    """Height of a split beat's upper canvas, in pixels. Accepts a fraction
+    (<=1) or explicit pixels; defaults to 56% of frame height, measured from the
+    reference cut. Shared by the builder and verify so the two cannot disagree
+    about where the canvas sits."""
+    v = (layout or {}).get("canvas")
+    if v is None:
+        return int(round(H * 0.56))
+    v = float(v)
+    px = int(round(H * v)) if v <= 1.0 else int(round(v))
+    return max(160, min(H - 200, px))       # always leave room for the speaker
+
+
 def DIR(br):
     return (br or {}).get("_dir", "rtl")
 
@@ -392,6 +405,24 @@ def k_follow(cid, d, br, an, st, en):
     return b, g
 
 
+def k_canvas(cid, d, br, an, st, en):
+    """Kicker + headline on the light split canvas. Start-aligned, so it reads
+    correctly in both directions. Deliberately the only canvas kind for now:
+    every other kind is designed for a dark surface and would need a light
+    variant, which is a design-system job rather than this slice."""
+    D = DIR(br); g = []
+    kick = (f'<div id="{cid}-k" class="ckicker" dir="{D}">{esc(d["kicker"])}</div>'
+            if d.get("kicker") else "")
+    head = kinetic(f"{cid}-h", d["headline"], "chead", D)
+    # The panel is already there at `st` (split mode gives it no entrance), so
+    # the content starts almost immediately - a longer delay leaves a blank
+    # light rectangle on screen, which reads as a missing asset.
+    if kick:
+        g.append(an.slide(S(cid, cid + "-k"), st + 0.04, 0.26, dy=-14))
+    g.append(an.chars(S(cid, cid + "-h"), st + 0.10, 0.30, 0.014))
+    return f'<div class="cblock">{kick}{head}</div>', g
+
+
 def k_doodle(cid, d, br, an, st, en):
     D = DIR(br)
     """Escape hatch: the agent supplies raw inline SVG plus a list of
@@ -438,5 +469,5 @@ KINDS = {
     "hero": k_hero, "notification": k_notification, "chat": k_chat, "code": k_code,
     "diff": k_diff, "checklist": k_checklist, "donut": k_donut, "bars": k_bars,
     "pipeline": k_pipeline, "contrast": k_contrast, "chips": k_chips, "stat": k_stat,
-    "follow": k_follow, "doodle": k_doodle, "image": k_image,
+    "follow": k_follow, "doodle": k_doodle, "image": k_image, "canvas": k_canvas,
 }

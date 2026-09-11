@@ -122,6 +122,15 @@ this is where reels are won or lost.** The one rule that matters most:
 Beat count: aim for one visual every 4–7 s of speech, and let each beat land on a
 clause boundary from the transcript, not on a round number.
 
+**Splitting the frame.** Three modes layer a card over the footage; `split` divides
+it instead — an opaque light panel across the top 56%, the speaker undimmed below,
+hard cuts in and out, and a `1 / n` counter pill. It looks like slides advancing
+next to a presenter, so save it for a reel's structural beats (the numbered points,
+the conclusion) rather than using it throughout. Use `kind: "canvas"` inside it;
+the other kinds are drawn for a dark surface. `verify` measures the panel against
+the detected face and `--fix` lowers it when it clips the eye line — the 56%
+default is a starting point, not a constant.
+
 ## 4. Build
 
 ```bash

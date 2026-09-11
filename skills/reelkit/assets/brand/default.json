@@ -17,5 +17,8 @@
   "captionTop": 1500,
   "captionHeight": 360,
   "captionPlate": "rgba(5,6,10,.60)",
-  "captionIdle": "#FFFFFF"
+  "captionIdle": "#FFFFFF",
+  "canvasBg": "#F7F7F4",
+  "canvasText": "#14161C",
+  "canvasMuted": "#8A8F98"
 }

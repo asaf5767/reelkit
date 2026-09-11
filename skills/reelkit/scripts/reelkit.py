@@ -16,7 +16,7 @@ Everything is deterministic: same plan.json + same media => byte-identical HTML.
 import argparse, json, os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
-                   lang_direction as cards_lang_direction)
+                   lang_direction as cards_lang_direction, split_canvas_h)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -28,6 +28,8 @@ DEFAULT_BRAND = {
     "captionSize": 76, "captionMaxWords": 3, "captionMaxChars": 15,
     "captionTop": 1500, "captionHeight": 360,
     "captionPlate": "rgba(5,6,10,.60)", "captionIdle": "#FFFFFF",
+    # split-mode canvas is a LIGHT surface - the opposite mood from stage/full
+    "canvasBg": "#F7F7F4", "canvasText": "#14161C", "canvasMuted": "#8A8F98",
 }
 
 
@@ -119,7 +121,7 @@ text-shadow:0 4px 22px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.95);}}
 """.strip()
 
 
-def card_css(cid, mode, br, layout=None):
+def card_css(cid, mode, br, layout=None, canvas_h=0):
     D = br.get("_dir", "rtl"); START = "right" if D == "rtl" else "left"
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
@@ -130,6 +132,26 @@ def card_css(cid, mode, br, layout=None):
     pad = (f"{int(top)}px 0 0 0" if top is not None
            else ("300px 0 0 0" if mode == "stage"
                  else ("220px 0 0 0" if mode == "full" else "140px 0 0 0")))
+    if mode == "split":
+        pad = "0"      # the canvas owns the upper band and carries its own surface
+    # Emitted only for split beats: every other card would carry 15 lines of dead
+    # rules, and existing projects must still rebuild byte-identically.
+    canvas_css = f"""
+{P} .canvas {{ position:absolute;left:0;top:0;width:100%;height:{canvas_h}px;
+ background:{br.get('canvasBg', '#F7F7F4')};border-bottom:4px solid {A[0]};
+ display:flex;flex-direction:column;align-items:stretch;justify-content:center;
+ gap:22px;padding:72px 64px 84px;overflow:hidden; }}
+{P} .cblock {{ display:flex;flex-direction:column;gap:18px;text-align:{START};
+ direction:{D}; }}
+{P} .ckicker {{ font-size:34px;font-weight:800;letter-spacing:.16em;
+ text-transform:uppercase;color:{br.get('canvasMuted', '#8A8F98')}; }}
+{P} .chead {{ font-size:96px;font-weight:900;line-height:1.10;
+ color:{br.get('canvasText', '#14161C')};letter-spacing:-.015em; }}
+{P} .cpill {{ position:absolute;{START}:64px;bottom:34px;
+ font-family:'{br['latinFont']}',sans-serif;font-size:28px;font-weight:900;
+ letter-spacing:.10em;color:{br.get('canvasText', '#14161C')};
+ background:rgba(0,0,0,.06);border:2px solid rgba(0,0,0,.16);
+ border-radius:999px;padding:10px 26px; }}""" if mode == "split" else ""
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
@@ -257,7 +279,7 @@ def card_css(cid, mode, br, layout=None):
 {P} .imgcap {{ font-size:44px;font-weight:800;text-align:center;opacity:.92;
  text-shadow:0 4px 20px rgba(0,0,0,.8); }}
 {P} .imgbehind {{ position:absolute;inset:0;z-index:0;opacity:.55; }}
-{P} .imgbehind img {{ width:100%;height:100%;object-fit:cover;display:block; }}
+{P} .imgbehind img {{ width:100%;height:100%;object-fit:cover;display:block; }}{canvas_css}
 {P} .missing {{ width:900px;border:3px dashed {A[4]};border-radius:28px;padding:40px;
  background:rgba(20,10,14,.75);color:#ffd7dd;font-size:34px;font-weight:800;line-height:1.35;direction:{D}; }}
 """.strip()
@@ -320,6 +342,10 @@ def build(project):
         if float(b["start"]) >= dur:
             warn.append(f"beat {b['id']} starts at {b['start']}s, past the media ({dur}s) - it will never show")
 
+    # Counter pills read "i / n" across the split beats only.
+    _splits = [b["id"] for b in plan["beats"] if b.get("mode") == "split"]
+    split_index = {bid: (i + 1, len(_splits)) for i, bid in enumerate(_splits)}
+
     # ---- beats ------------------------------------------------------------
     for beat in plan["beats"]:
         cid = beat["id"]; st = an.q(beat["start"]); en = an.q(min(beat["end"], dur))
@@ -368,11 +394,31 @@ def build(project):
                 g.append(an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-bg'", st + 0.05, 0.5))
 
         takeover = mode == "full" and beat.get("takeover")
-        scrim = ('<div class="scrim full%s"></div>' % (" takeover" if takeover else "") if mode == "full"
-                 else '<div class="scrim stage"></div>' if mode == "stage"
-                 else '<div class="scrim"></div>')
+        canvas_h = split_canvas_h(beat.get("layout"), H) if mode == "split" else 0
+        if mode == "split":
+            # No scrim at all: the speaker below the canvas plays undimmed. The
+            # canvas is a LIGHT surface with dark text - the opposite mood from
+            # stage/full, which dim the frame.
+            pill = ""
+            if beat.get("counter", True) and cid in split_index:
+                i, n = split_index[cid]
+                label = beat.get("counterLabel") or f"{i} / {n}"
+                pill = f'<div class="cpill" id="{cid}-pill">{esc(label)}</div>'
+            body = f'<div class="canvas" id="{cid}-canvas">{body}{pill}</div>'
+            # The panel itself gets NO entrance tween. Fading it in would leave
+            # the upper band showing bare footage for the length of the fade -
+            # between two adjacent splits that reads as a blink, not a cut. The
+            # surface is simply there, like a slide advancing; only the content
+            # on it staggers in (see k_canvas).
+            if pill:
+                g.append(an.pop(f"'.card[data-card-id=\"{cid}\"] #{cid}-pill'", st + 0.18, 0.28, 0.75))
+            scrim = ""
+        else:
+            scrim = ('<div class="scrim full%s"></div>' % (" takeover" if takeover else "") if mode == "full"
+                     else '<div class="scrim stage"></div>' if mode == "stage"
+                     else '<div class="scrim"></div>')
         frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n'
-                f'{card_css(cid, mode, br, beat.get("layout"))}\n</style>\n'
+                f'{card_css(cid, mode, br, beat.get("layout"), canvas_h)}\n</style>\n'
                 f'<div class="root">{scrim}{body}</div>\n</div>')
         open(os.path.join(pub, "cards", f"{cid}.html"), "w", encoding="utf-8").write(frag)
 
@@ -391,9 +437,20 @@ def build(project):
                      f'style="left:0;top:0;width:{W}px;height:{H}px;visibility:hidden;opacity:0;">\n{frag}\n</div>')
         sel = f"'.card-host[data-card-id=\"{cid}\"]'"
         tls.append(f"tl.set({sel},{{visibility:'visible'}},{st});")
-        tls.append(f"tl.fromTo({sel},{{opacity:0}},{{opacity:1,duration:0.30,ease:'power2.out'}},{st});")
-        tls += g
-        tls.append(f"tl.to({sel},{{opacity:0,duration:0.26,ease:'power2.in'}},{an.q(en-0.26)});")
+        if mode == "split":
+            # Hard cut between canvas layouts - a crossfade would show two
+            # canvases stacked while one fades out.
+            tls.append(f"tl.set({sel},{{opacity:1}},{st});")
+            tls += g
+            # Instant, not a tween: still a hard cut, but the finished host is
+            # transparent as well as hidden. Leaving opacity at 1 makes every
+            # past canvas a stacked text block to any static analysis (and to
+            # anything that honours opacity but not visibility).
+            tls.append(f"tl.set({sel},{{opacity:0}},{en});")
+        else:
+            tls.append(f"tl.fromTo({sel},{{opacity:0}},{{opacity:1,duration:0.30,ease:'power2.out'}},{st});")
+            tls += g
+            tls.append(f"tl.to({sel},{{opacity:0,duration:0.26,ease:'power2.in'}},{an.q(en-0.26)});")
         tls.append(f"tl.set({sel},{{visibility:'hidden'}},{en});")
 
     # ---- captions ---------------------------------------------------------
@@ -575,7 +632,7 @@ def sample_plan(fps, width, height):
                                 "verify before render"], "clock": True}},
             {"id": "b03", "kind": "stat", "mode": "top", "start": 8.0, "end": 11.6,
              "intent": "close - the library size",
-             "data": {"from": 0, "to": 15, "unit": "beat kinds",
+             "data": {"from": 0, "to": 16, "unit": "beat kinds",
                       "note": "one deterministic build", "dur": 1.15}},
         ],
     }

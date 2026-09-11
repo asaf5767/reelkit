@@ -21,6 +21,9 @@ Writes verify.json and prints a report. Exit code 1 if any ERROR-level finding.
 """
 import argparse, json, os, statistics, subprocess, sys, tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cards import split_canvas_h   # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 try:
@@ -162,6 +165,30 @@ def run(project, as_json, fix):
         cid = b["id"]; box = boxes.get(cid); face = faces.get(cid)
         mode = b.get("mode", "top")
         row = {"id": cid, "kind": b["kind"], "mode": mode, "box": box, "face": face}
+        if mode == "split":
+            # split's contract is that the speaker stays visible and undimmed
+            # below the canvas. The opaque thing is the canvas panel, not the
+            # measured content, so check the panel rect.
+            ch = split_canvas_h(b.get("layout"), H)
+            row["canvas"] = {"x": 0, "y": 0, "w": W, "h": ch}
+            cbox = {"x": 0.0, "y": 0.0, "w": float(W), "h": float(ch)}
+            if face:
+                fx, fy, fw, fh = face
+                so = overlap_pct(cbox, (fx, fy + fh * 0.30, fw, fh * 0.70))
+                row["canvasFaceOverlapPct"] = so
+                if so >= 12:
+                    findings.append(("ERROR", cid,
+                                     f"split canvas covers {so}% of the speaker's eyes/mouth - "
+                                     f"lower layout.canvas (currently {ch}px of {H})"))
+                elif so >= 4:
+                    findings.append(("WARN", cid,
+                                     f"split canvas clips {so}% of the speaker's eyes/mouth"))
+            if cap_on:
+                cc = overlap_pct(cbox, cap_box)
+                row["canvasCaptionOverlapPct"] = cc
+                if cc >= 2:
+                    findings.append(("ERROR", cid,
+                                     f"split canvas reaches into the caption band ({cc}%)"))
         if not HAVE_PW:
             report.append(row)
             continue
@@ -250,7 +277,24 @@ def run(project, as_json, fix):
 def apply_fixes(project, plan, boxes, faces, findings):
     """Only mechanical remedies. Anything needing judgement is reported, not fixed."""
     changed = 0
-    bad = {cid for lvl, cid, msg in findings if lvl == "ERROR" and "eyes/mouth" in msg}
+    # split: shrink the canvas until it clears the eyes. Mechanical - the canvas
+    # top edge is fixed, so only its height is in question.
+    split_bad = {cid for lvl, cid, msg in findings
+                 if lvl in ("ERROR", "WARN") and "split canvas" in msg and "eyes/mouth" in msg}
+    for b in plan["beats"]:
+        if b["id"] not in split_bad or b.get("mode") != "split":
+            continue
+        face = faces.get(b["id"])
+        if not face:
+            continue
+        fy, fh = face[1], face[3]
+        safe = int(fy + fh * 0.30) - 32          # clear of the eye line
+        if safe >= 320:
+            b.setdefault("layout", {})["canvas"] = safe
+            changed += 1
+
+    bad = {cid for lvl, cid, msg in findings if lvl == "ERROR" and "eyes/mouth" in msg
+           and "split canvas" not in msg}
     for b in plan["beats"]:
         if b["id"] not in bad:
             continue
