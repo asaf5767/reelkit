@@ -232,11 +232,15 @@ These are not style preferences. Each one is a defect that shipped or nearly shi
    word break mid-word across lines.
 4. **Use `svgOrigin` for SVG rotation**, not `transformOrigin` — the latter resolves
    against the element bbox, not the viewBox, and silently misplaces the pivot.
-5. **Load a font that has the script.** Inter, Caveat and most bundled faces carry
+5. **Never hardcode a text direction.** Take it from the composition
+   (`DIR(br)` in `cards.py`), which resolves from `meta.lang`. Bidi reorders text
+   runs, not boxes you positioned — so hardcoded `dir="rtl"` renders English
+   kinetic type and captions reversed, and every gate still passes.
+6. **Load a font that has the script.** Inter, Caveat and most bundled faces carry
    no Hebrew or Arabic glyphs; text renders as tofu boxes. reelkit ships Heebo.
-6. **Clamp every time to the media duration.** Whisper returns a final word ending
+7. **Clamp every time to the media duration.** Whisper returns a final word ending
    a hair past the clip; an uncapped card produces a black tail.
-7. **Keep the speaker's face clear.** Content beats belong in the empty space above
+8. **Keep the speaker's face clear.** Content beats belong in the empty space above
    the head. Covering the mouth of a talking head is the most common self-inflicted
    wound in this format.
 

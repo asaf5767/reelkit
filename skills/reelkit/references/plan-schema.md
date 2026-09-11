@@ -12,7 +12,10 @@ composition. Nothing else is authored by hand.
 {
   "meta": {
     "title": "…",            // free text, for humans
-    "lang": "he",            // goes on <html lang>. NEVER set dir here.
+    "lang": "he",            // goes on <html lang>, and picks the composition
+                             // direction (rtl for he/ar/fa/ur/..., else ltr).
+                             // NEVER set dir on <html> itself.
+    "dir": "rtl",            // optional override when the lang tag is misleading
     "fps": 30, "width": 1080, "height": 1920,
     "duration": 90.03,       // optional; probed from the video when absent
     "trimTail": true         // drop the final frame (default true) - avoids a black tail

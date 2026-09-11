@@ -15,7 +15,8 @@ Everything is deterministic: same plan.json + same media => byte-identical HTML.
 """
 import argparse, json, os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cards import KINDS, Anim, esc, kinetic, icon   # noqa: E402
+from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
+                   lang_direction as cards_lang_direction)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -119,6 +120,7 @@ text-shadow:0 4px 22px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.95);}}
 
 
 def card_css(cid, mode, br, layout=None):
+    D = br.get("_dir", "rtl"); START = "right" if D == "rtl" else "left"
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
     top = (layout or {}).get("top")
@@ -133,14 +135,14 @@ def card_css(cid, mode, br, layout=None):
  rgba(5,6,10,.46) 68%,rgba(5,6,10,.34) 100%); }}
 {P} .scrim.full {{ background:rgba(5,6,10,.90); }}
 {P} .stack {{ position:relative;width:980px;display:flex;flex-direction:column;gap:20px;
- padding:0 26px;direction:rtl;text-align:right; }}
+ padding:0 26px;direction:{D};text-align:{START}; }}
 {P} .stack.center {{ align-items:center;text-align:center; }}
-{P} .blk {{ position:relative;width:960px;padding:0 24px;direction:rtl;text-align:right; }}
+{P} .blk {{ position:relative;width:960px;padding:0 24px;direction:{D};text-align:{START}; }}
 {P} .blk.center {{ display:flex;flex-direction:column;align-items:center;text-align:center; }}
 {P} .stagewrap {{ position:relative;width:1000px;padding:0 20px;display:flex;flex-direction:column;
  align-items:center;gap:26px; }}
 {P} .row2 {{ position:relative;width:990px;padding:0 24px;display:flex;align-items:center;
- gap:38px;direction:rtl; }}
+ gap:38px;direction:{D}; }}
 {P} .ico {{ width:100%;height:100%;display:block; }}
 {P} .char {{ display:inline-block; }}
 {P} .wd {{ display:inline-block;white-space:nowrap; }}
@@ -187,7 +189,7 @@ def card_css(cid, mode, br, layout=None):
 {P} .dl span {{ width:22px;flex:0 0 auto;font-weight:900; }}
 {P} .dl.del {{ background:rgba(251,113,133,.16);color:#ffc4cd; }}
 {P} .dl.add {{ background:rgba(74,222,128,.15);color:#c7f5d8; }}
-{P} .vchips {{ display:flex;gap:18px;justify-content:center;flex-wrap:wrap;direction:rtl; }}
+{P} .vchips {{ display:flex;gap:18px;justify-content:center;flex-wrap:wrap;direction:{D}; }}
 {P} .vchip {{ display:flex;align-items:center;gap:14px;font-size:42px;font-weight:900;
  background:rgba(16,18,28,.9);border:2px solid rgba(255,255,255,.16);border-radius:999px;padding:16px 30px; }}
 {P} .vchip span {{ width:38px;height:38px;flex:0 0 auto;display:block; }}
@@ -218,7 +220,7 @@ def card_css(cid, mode, br, layout=None):
 {P} .blegend {{ display:flex;flex-direction:column;gap:14px;align-items:center; }}
 {P} .lg {{ display:flex;align-items:center;gap:14px;font-size:38px;font-weight:800;opacity:.95; }}
 {P} .lg i {{ width:22px;height:22px;border-radius:6px;display:block; }}
-{P} .shiftrow {{ display:flex;align-items:center;gap:26px;direction:rtl; }}
+{P} .shiftrow {{ display:flex;align-items:center;gap:26px;direction:{D}; }}
 {P} .sbox {{ font-size:60px;font-weight:900;padding:22px 42px;border-radius:24px; }}
 {P} .sbox.off {{ background:rgba(20,22,32,.9);border:3px solid {A[4]};color:#ffb3bd;
  text-decoration:line-through;text-decoration-thickness:6px; }}
@@ -231,10 +233,10 @@ def card_css(cid, mode, br, layout=None):
  border-radius:36px;padding:44px 40px;box-shadow:0 30px 80px rgba(0,0,0,.7); }}
 {P} .fq {{ font-size:30px;font-weight:800;letter-spacing:.02em;margin-bottom:14px; }}
 {P} .fbig {{ font-size:74px;font-weight:900;line-height:1.12;margin-bottom:34px; }}
-{P} .frow {{ display:flex;align-items:center;gap:20px;direction:rtl; }}
+{P} .frow {{ display:flex;align-items:center;gap:20px;direction:{D}; }}
 {P} .fav {{ width:86px;height:86px;border-radius:50%;color:#10121a;font-size:44px;font-weight:900;
  display:flex;align-items:center;justify-content:center;flex:0 0 auto; }}
-{P} .fnm {{ flex:1;display:flex;flex-direction:column;text-align:right; }}
+{P} .fnm {{ flex:1;display:flex;flex-direction:column;text-align:{START}; }}
 {P} .fnm b {{ font:900 38px '{br['latinFont']}',sans-serif; }}
 {P} .fnm span {{ font-size:28px;opacity:.66;font-weight:700; }}
 {P} .fbtn {{ color:#10121a;font-size:38px;font-weight:900;padding:16px 40px;border-radius:999px; }}
@@ -250,7 +252,7 @@ def card_css(cid, mode, br, layout=None):
 {P} .imgbehind {{ position:absolute;inset:0;z-index:0;opacity:.55; }}
 {P} .imgbehind img {{ width:100%;height:100%;object-fit:cover;display:block; }}
 {P} .missing {{ width:900px;border:3px dashed {A[4]};border-radius:28px;padding:40px;
- background:rgba(20,10,14,.75);color:#ffd7dd;font-size:34px;font-weight:800;line-height:1.35;direction:rtl; }}
+ background:rgba(20,10,14,.75);color:#ffd7dd;font-size:34px;font-weight:800;line-height:1.35;direction:{D}; }}
 """.strip()
 
 
@@ -264,6 +266,13 @@ def build(project):
     fps = int(meta.get("fps", 30)); W = int(meta.get("width", 1080)); H = int(meta.get("height", 1920))
     an = Anim(fps)
     br = load_brand(project, plan)
+    # Composition direction follows the language. Everything that lays text out
+    # as positioned boxes (kinetic chars, caption flex children) must follow it:
+    # bidi can reorder a text run, but it cannot reorder boxes we positioned.
+    br["_dir"] = meta.get("dir") or cards_lang_direction(meta.get("lang"))
+    if br["_dir"] not in ("rtl", "ltr"):
+        die(f"meta.dir must be 'rtl' or 'ltr', got {br['_dir']!r}")
+    DIRC = br["_dir"]; STARTC = "right" if DIRC == "rtl" else "left"
     pub = os.path.join(project, "public")
     os.makedirs(os.path.join(pub, "cards"), exist_ok=True)
     os.makedirs(os.path.join(pub, "images"), exist_ok=True)
@@ -390,7 +399,7 @@ def build(project):
             frag = (f'<div class="card" data-card-id="{cp["id"]}">\n<style>\n'
                     f'.card[data-card-id="{cp["id"]}"] .root {{ width:100%;height:100%;display:flex;'
                     f'align-items:center;justify-content:center; }}\n</style>\n'
-                    f'<div class="root"><div class="capline" dir="rtl">{ws}</div></div>\n</div>')
+                    f'<div class="root"><div class="capline" dir="{DIRC}">{ws}</div></div>\n</div>')
             s, e = cp["start"], cp["end"]
             hosts.append(f'<div class="card-host clip cap-host" data-card-id="{cp["id"]}" '
                          f'data-composition-id="{cp["id"]}" data-start="{s:.4f}" data-duration="{e-s:.4f}" '

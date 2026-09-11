@@ -15,7 +15,8 @@ into named boxes while an agent that cannot still ships a finished reel.
 
 Most caption tooling is built and tested in English, and most "AI visuals" turn out
 to be the speaker's own sentence in a bigger font. reelkit is opinionated about both:
-RTL is a first-class case, and a visual has to *depict something* the captions do
+Direction is resolved from `meta.lang`, so RTL is a first-class case rather than
+the only case, and a visual has to *depict something* the captions do
 not already say. It also places timed sound effects, normalising their levels and
 compensating for the leading silence several stock files carry.
 

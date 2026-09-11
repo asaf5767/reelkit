@@ -107,7 +107,7 @@ def icon(name, cls="ico"):
     return f'<svg viewBox="0 0 24 24" class="{cls}" aria-hidden="true">{ICON.get(name, ICON["spark"])}</svg>'
 
 
-def kinetic(eid, text, cls, rtl=True):
+def kinetic(eid, text, cls, direction="rtl"):
     """Split into per-word spans (nowrap) containing per-char spans.
 
     Per-CHARACTER inline-block spans alone let a word break across lines, which
@@ -116,7 +116,7 @@ def kinetic(eid, text, cls, rtl=True):
     for tok in str(text).split(" "):
         inner = "".join(f'<span class="char">{esc(ch)}</span>' for ch in tok)
         parts.append(f'<span class="wd">{inner}</span>')
-    d = ' dir="rtl"' if rtl else ' dir="ltr"'
+    d = f' dir="{direction}"'
     return f'<div id="{eid}" class="{cls}"{d}>{" ".join(parts)}</div>'
 
 
@@ -130,16 +130,41 @@ def _mk(br):
     return lambda i: br["accents"][i % len(br["accents"])]
 
 
+# Scripts written right-to-left. Everything else is ltr. The composition's
+# direction comes from plan.meta.lang and is threaded in as br["_dir"]; the
+# default stays "rtl" so existing Hebrew projects are byte-identical.
+RTL_LANGS = {"he", "iw", "ar", "arc", "fa", "ur", "yi", "ji", "dv", "ps",
+             "ckb", "sd", "ug", "nqo", "syr", "sam", "ku-arab", "pa-arab"}
+
+
+def lang_direction(lang):
+    if not lang:
+        return "ltr"
+    base = str(lang).replace("_", "-").lower()
+    return "rtl" if (base in RTL_LANGS or base.split("-")[0] in RTL_LANGS) else "ltr"
+
+
+def DIR(br):
+    return (br or {}).get("_dir", "rtl")
+
+
+def START(br):
+    """The inline-start edge, for text-align."""
+    return "right" if DIR(br) == "rtl" else "left"
+
+
 def k_hero(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []
     note = d.get("note", "")
-    latin = note.isascii() and note != ""
+    latin = D == "rtl" and note.isascii() and note != ""
     b = ('<div class="blk center">'
          + (f'<div id="{cid}-ic" class="heroicon" style="color:{A(0)}">{icon(d["icon"])}</div>' if d.get("icon") else "")
-         + kinetic(f"{cid}-t", d["text"], "hero" + (" sm" if d.get("small") else ""), d.get("rtl", True))
+         + kinetic(f"{cid}-t", d["text"], "hero" + (" sm" if d.get("small") else ""),
+                   ("rtl" if d["rtl"] else "ltr") if "rtl" in d else D)
          + f'<div id="{cid}-r" class="rule big"></div>'
          + (f'<div id="{cid}-s" class="note{" latin" if latin else ""}" '
-            f'dir="{"ltr" if latin else "rtl"}">{esc(note)}</div>' if note else "")
+            f'dir="{"ltr" if latin else D}">{esc(note)}</div>' if note else "")
          + '</div>')
     if d.get("icon"): g.append(an.pop(S(cid, cid + "-ic"), st + 0.05, 0.55))
     g.append(an.chars(S(cid, cid + "-t"), st + (0.24 if d.get("icon") else 0.10), 0.42, 0.032))
@@ -149,23 +174,25 @@ def k_hero(cid, d, br, an, st, en):
 
 
 def k_notification(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []; rows = ""
     for i, it in enumerate(d["items"]):
         col = A(3) if it.get("tone") == "ok" else A(0)
         ic = icon(it.get("icon", "check" if it.get("tone") == "ok" else "spark"))
         rows += (f'<div id="{cid}-n{i}" class="notif"><span class="nico" style="color:{col}">{ic}</span>'
-                 f'<div class="ntx"><div class="napp" dir="rtl">{esc(it.get("app",""))}</div>'
-                 f'<div class="nbody" dir="rtl">{esc(it["body"])}</div></div></div>')
+                 f'<div class="ntx"><div class="napp" dir="{D}">{esc(it.get("app",""))}</div>'
+                 f'<div class="nbody" dir="{D}">{esc(it["body"])}</div></div></div>')
         g.append(an.slide(S(cid, cid + f"-n{i}"), st + 0.15 + i * float(d.get("gap", 1.9)), 0.55, dy=-90))
     return f'<div class="stack">{rows}</div>', g
 
 
 def k_chat(cid, d, br, an, st, en):
+    D = DIR(br)
     g = []; rows = ""
     msgs = d["msgs"]
     for i, m in enumerate(msgs):
         side = "r" if m.get("side") in ("r", "me", "right") else "l"
-        rows += f'<div id="{cid}-m{i}" class="bub {side}"><span dir="rtl">{esc(m["text"])}</span></div>'
+        rows += f'<div id="{cid}-m{i}" class="bub {side}"><span dir="{D}">{esc(m["text"])}</span></div>'
     typing = f'<div id="{cid}-typ" class="bub l typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>' if d.get("typing", True) else ""
     b = (f'<div class="stagewrap"><div class="phone"><div class="phbar"><i></i><i></i><i></i></div>'
          f'<div class="thread">{rows}{typing}</div></div></div>')
@@ -178,6 +205,7 @@ def k_chat(cid, d, br, an, st, en):
 
 
 def k_code(cid, d, br, an, st, en):
+    D = DIR(br)
     g = []
     rows = "".join(f'<div id="{cid}-l{i}" class="cl"><span class="gut">{i+1}</span><code>{ln}</code></div>'
                    for i, ln in enumerate(d["lines"]))
@@ -192,13 +220,14 @@ def k_code(cid, d, br, an, st, en):
 
 
 def k_diff(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []
     rows = "".join(f'<div id="{cid}-d{i}" class="dl {"add" if r["op"]=="+" else "del"}">'
                    f'<span>{esc(r["op"])}</span><code>{esc(r["text"])}</code></div>'
                    for i, r in enumerate(d["rows"]))
     chips = ""
     for i, c in enumerate(d.get("chips", [])):
-        chips += (f'<div id="{cid}-c{i}" class="vchip" dir="rtl">'
+        chips += (f'<div id="{cid}-c{i}" class="vchip" dir="{D}">'
                   f'<span style="color:{A(i+1)}">{icon(c.get("icon","check"))}</span>{esc(c["text"])}</div>')
     b = (f'<div class="stagewrap"><div class="win"><div class="winbar"><i class="r"></i><i class="y"></i>'
          f'<i class="g"></i><span class="wt">{esc(d.get("title","review"))}</span></div>'
@@ -212,8 +241,9 @@ def k_diff(cid, d, br, an, st, en):
 
 
 def k_checklist(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []
-    li = "".join(f'<div id="{cid}-k{i}" class="krow" dir="rtl">'
+    li = "".join(f'<div id="{cid}-k{i}" class="krow" dir="{D}">'
                  f'<span class="kt" style="color:{A(3)}">{icon("check")}</span>{esc(x)}</div>'
                  for i, x in enumerate(d["items"]))
     clock = ""
@@ -235,6 +265,7 @@ def k_checklist(cid, d, br, an, st, en):
 
 
 def k_donut(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []
     C = 2 * 3.141592653589793 * 120
     paths = ""; leg = ""; off = 0
@@ -244,7 +275,7 @@ def k_donut(cid, d, br, an, st, en):
         paths += (f'<circle id="{cid}-s{i}" cx="150" cy="150" r="120" fill="none" stroke="{col}" stroke-width="46" '
                   f'stroke-dasharray="{round(L,2)} {round(C-L,2)}" stroke-dashoffset="{round(-C*off/100.0,2)}" '
                   f'transform="rotate(-90 150 150)"/>')
-        leg += (f'<div id="{cid}-g{i}" class="lgrow" dir="rtl"><span class="sw" style="background:{col}"></span>'
+        leg += (f'<div id="{cid}-g{i}" class="lgrow" dir="{D}"><span class="sw" style="background:{col}"></span>'
                 f'<span class="lgn">{esc(sgm["label"])}</span>'
                 f'<span class="lgp" style="color:{col}">{int(pc)}%</span></div>')
         g.append(f"tl.fromTo({S(cid, cid+f'-s{i}')},{{strokeDasharray:'0 {round(C,2)}'}},"
@@ -258,6 +289,7 @@ def k_donut(cid, d, br, an, st, en):
 
 
 def k_bars(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []; cols = ""
     for gi, grp in enumerate(d["groups"]):
         segs = ""
@@ -268,14 +300,15 @@ def k_bars(cid, d, br, an, st, en):
                      f'<span class="bpc">{int(float(sgm["pct"]))}%</span></div>')
             g.append(an.grow_h(S(cid, cid + f"-b{gi}{si}"), st + 0.25 + gi * 1.35 + si * 0.30, 0.58, hgt))
         cols += (f'<div class="bcol"><div class="bstack">{segs}</div>'
-                 f'<div class="bcap{" hot" if grp.get("hot") else ""}" dir="rtl">{esc(grp["cap"])}</div></div>')
-    leg = "".join(f'<span class="lg" dir="rtl"><i style="background:{l.get("color") or A(i)}"></i>{esc(l["label"])}</span>'
+                 f'<div class="bcap{" hot" if grp.get("hot") else ""}" dir="{D}">{esc(grp["cap"])}</div></div>')
+    leg = "".join(f'<span class="lg" dir="{D}"><i style="background:{l.get("color") or A(i)}"></i>{esc(l["label"])}</span>'
                   for i, l in enumerate(d.get("legend", [])))
     return (f'<div class="stagewrap"><div class="bars">{cols}</div>'
             + (f'<div class="blegend">{leg}</div>' if leg else "") + '</div>'), g
 
 
 def k_pipeline(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []; bx = ""
     n = len(d["nodes"]); h = 86; gap = 32
     for i, nm in enumerate(d["nodes"]):
@@ -299,14 +332,15 @@ def k_pipeline(cid, d, br, an, st, en):
 
 
 def k_contrast(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []
     b = (f'<div class="stack center"><div class="shiftrow">'
-         f'<div id="{cid}-x" class="sbox off" dir="rtl">{esc(d["from"])}</div>'
+         f'<div id="{cid}-x" class="sbox off" dir="{D}">{esc(d["from"])}</div>'
          f'<svg viewBox="0 0 140 60" class="sarrow"><path id="{cid}-ar" d="M12 30 L112 30" stroke="{A(0)}" '
          f'stroke-width="9" stroke-linecap="round" stroke-dasharray="104"/>'
          f'<path id="{cid}-ah" d="M96 16 L114 30 L96 44" fill="none" stroke="{A(0)}" stroke-width="9" '
          f'stroke-linecap="round" stroke-dasharray="52"/></svg>'
-         f'<div id="{cid}-y" class="sbox on" dir="rtl">{esc(d["to"])}</div></div></div>')
+         f'<div id="{cid}-y" class="sbox on" dir="{D}">{esc(d["to"])}</div></div></div>')
     g += [an.pop(S(cid, cid + "-x"), st + 0.12, 0.4),
           an.draw(S(cid, cid + "-ar"), st + 0.55, 0.35, 104),
           an.draw(S(cid, cid + "-ah"), st + 0.80, 0.22, 52),
@@ -315,21 +349,23 @@ def k_contrast(cid, d, br, an, st, en):
 
 
 def k_chips(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []; cs = ""
     for i, c in enumerate(d["items"]):
         mark = (f'<span class="tick" style="color:{A(3)}">{icon("check")}</span>'
                 if c.get("check") else f'<span class="dot2" style="background:{A(i+1)}"></span>')
-        cs += f'<div id="{cid}-c{i}" class="chip" style="border-color:{A(i+1)}" dir="rtl">{mark}<span>{esc(c["text"])}</span></div>'
+        cs += f'<div id="{cid}-c{i}" class="chip" style="border-color:{A(i+1)}" dir="{D}">{mark}<span>{esc(c["text"])}</span></div>'
         g.append(an.pop(S(cid, cid + f"-c{i}"), st + 0.10 + i * 0.30, 0.45))
-    return f'<div class="stack"><div class="chips" dir="rtl">{cs}</div></div>', g
+    return f'<div class="stack"><div class="chips" dir="{D}">{cs}</div></div>', g
 
 
 def k_stat(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []
     b = (f'<div class="blk center">'
-         + (f'<div id="{cid}-n" class="note" dir="rtl">{esc(d["note"])}</div>' if d.get("note") else "")
+         + (f'<div id="{cid}-n" class="note" dir="{D}">{esc(d["note"])}</div>' if d.get("note") else "")
          + f'<div id="{cid}-num" class="bignum" style="color:{A(1)}">{int(d.get("from",0))}</div>'
-         + (f'<div id="{cid}-u" class="unit" dir="rtl">{esc(d["unit"])}</div>' if d.get("unit") else "") + '</div>')
+         + (f'<div id="{cid}-u" class="unit" dir="{D}">{esc(d["unit"])}</div>' if d.get("unit") else "") + '</div>')
     if d.get("note"): g.append(an.fade(S(cid, cid + "-n"), st + 0.05, 0.35))
     g.append(an.count(S(cid, cid + "-num"), st + 0.30, float(d.get("dur", 1.15)), int(d.get("from", 0)), int(d["to"])))
     if d.get("unit"): g.append(an.fade(S(cid, cid + "-u"), st + 0.45, 0.40))
@@ -337,13 +373,14 @@ def k_stat(cid, d, br, an, st, en):
 
 
 def k_follow(cid, d, br, an, st, en):
+    D = DIR(br)
     A = _mk(br); g = []
     b = (f'<div class="stagewrap"><div id="{cid}-card" class="fcard">'
-         + (f'<div class="fq" style="color:{A(0)}" dir="rtl">{esc(d["kicker"])}</div>' if d.get("kicker") else "")
-         + kinetic(f"{cid}-t", d["headline"], "fbig")
+         + (f'<div class="fq" style="color:{A(0)}" dir="{D}">{esc(d["kicker"])}</div>' if d.get("kicker") else "")
+         + kinetic(f"{cid}-t", d["headline"], "fbig", D)
          + f'<div class="frow"><div class="fav" style="background:{A(0)}">{esc(d.get("initial","•"))}</div>'
-           f'<div class="fnm"><b>{esc(d.get("name",""))}</b><span dir="rtl">{esc(d.get("handle",""))}</span></div>'
-           f'<div id="{cid}-btn" class="fbtn" style="background:{A(0)}" dir="rtl">{esc(d.get("cta","Follow"))}</div>'
+           f'<div class="fnm"><b>{esc(d.get("name",""))}</b><span dir="{D}">{esc(d.get("handle",""))}</span></div>'
+           f'<div id="{cid}-btn" class="fbtn" style="background:{A(0)}" dir="{D}">{esc(d.get("cta","Follow"))}</div>'
            f'</div></div></div>')
     g += [an.pop(S(cid, cid + "-card"), st + 0.10, 0.5, 0.85),
           an.chars(S(cid, cid + "-t"), st + 0.55, 0.45, 0.022),
@@ -352,13 +389,14 @@ def k_follow(cid, d, br, an, st, en):
 
 
 def k_doodle(cid, d, br, an, st, en):
+    D = DIR(br)
     """Escape hatch: the agent supplies raw inline SVG plus a list of
     {id, anim, at, dur, ...} so anything not in the library is still authorable
     without touching this file."""
     A = _mk(br); g = []
     svg = d["svg"].replace("{A0}", A(0)).replace("{A1}", A(1)).replace("{A2}", A(2)) \
                   .replace("{A3}", A(3)).replace("{A4}", A(4))
-    cap = (kinetic(f"{cid}-t", d["caption"], "btitle") if d.get("caption") else "")
+    cap = (kinetic(f"{cid}-t", d["caption"], "btitle", D) if d.get("caption") else "")
     wdt = int(d.get("width", 720))
     b = f'<div class="stack center"><div class="doodle" style="width:{wdt}px">{svg}</div>{cap}</div>'
     for a in d.get("anims", []):
@@ -378,10 +416,11 @@ def k_doodle(cid, d, br, an, st, en):
 
 
 def k_image(cid, d, br, an, st, en):
+    D = DIR(br)
     """Pure image beat. The <img> is filled by the image-slot resolver; if no
     file was supplied the caller substitutes the placeholder body instead."""
     g = []
-    cap = (f'<div id="{cid}-cap" class="imgcap" dir="rtl">{esc(d["caption"])}</div>' if d.get("caption") else "")
+    cap = (f'<div id="{cid}-cap" class="imgcap" dir="{D}">{esc(d["caption"])}</div>' if d.get("caption") else "")
     b = (f'<div class="stagewrap"><div id="{cid}-frame" class="imgframe {d.get("frame","soft")}">'
          f'<img id="{cid}-img" src="images/{cid}.png" alt=""/></div>{cap}</div>')
     g.append(an.pop(S(cid, cid + "-frame"), st + 0.10, 0.55, 0.86))

@@ -1,5 +1,20 @@
 # RTL, scripts and fonts
 
+## Direction follows `meta.lang`
+
+reelkit resolves one composition direction from `plan.meta.lang` — `rtl` for
+Hebrew, Arabic, Persian, Urdu, Kurdish (Sorani), Yiddish, Divehi, Pashto and
+friends; `ltr` for everything else. Override with `meta.dir` when the language
+tag is misleading.
+
+That direction drives every site that lays text out as **positioned boxes**:
+kinetic per-character spans, caption flex children, and the `direction` /
+`text-align` of card containers. This matters because the bidi algorithm can
+reorder a text *run*, but it cannot reorder boxes we positioned ourselves — so
+English inside a hardcoded `dir="rtl"` renders `,elif enO` instead of
+`One file,`. Plain text inside an RTL container survives bidi; split text does
+not. If you add a card kind, take its direction from `DIR(br)`, never a literal.
+
 Most caption tooling is built and tested in English. Hebrew and Arabic reels fail
 in ways that look like your bug but are the tooling's. These are the ones that cost
 real time.
