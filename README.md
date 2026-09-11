@@ -31,7 +31,25 @@ python3 skills/reelkit/scripts/reelkit.py doctor
 
 Or install as a Claude plugin from `.claude-plugin/marketplace.json`.
 
+## Try it without your own footage
+
+```bash
+S=skills/reelkit/scripts/reelkit.py
+python3 $S sample --project videos/sample   # generates a 12s synthetic clip + plan
+python3 $S build --project videos/sample
+cd videos/sample && npx hyperframes@latest check public && cd ../..
+python3 $S verify --project videos/sample
+```
+
+`sample` creates the clip with ffmpeg at run time (an animated gradient, not real
+footage), so the repo carries no video and nothing private. The transcript and
+plan are canned fixtures. Face detection needs a real head, so that part of
+`verify` only exercises on your own clip.
+
 ## Use
+
+The worked example needs a vertical talking-head clip (portrait, headroom above
+the speaker). Supply your own; none ships with the repo.
 
 ```bash
 S=skills/reelkit/scripts/reelkit.py
@@ -64,7 +82,7 @@ skills/reelkit/
   SKILL.md                 the workflow, and the hard rules
   references/              plan schema, visual-beat doctrine, RTL, captions,
                            image slots, audio, trimming, troubleshooting
-  scripts/reelkit.py       scaffold / cut / plan / build / verify / doctor
+  scripts/reelkit.py       sample / scaffold / cut / plan / build / verify / doctor
   scripts/verify.py        measured card geometry, face detection, collisions
   scripts/cards.py         15 visual-beat kinds + seek-safe animation primitives
   assets/fonts/            Heebo (OFL) + Inter

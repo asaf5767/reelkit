@@ -513,6 +513,90 @@ window.__timelines["reelkit"] = tl;
 
 
 
+
+# ------------------------------------------------------------------ sample project
+SAMPLE_LINES = [
+    (0.80, 3.40, "One file plans the whole reel."),
+    (3.80, 6.40, "Captions and cards build themselves."),
+    (6.80, 9.20, "Verification measures every card."),
+    (9.60, 11.40, "Then render once, with confidence."),
+]
+
+
+def sample_words():
+    """Canned transcript for the synthetic clip: the sine-tone audio has no
+    speech, so there is nothing to transcribe. Words are spaced evenly across
+    each line, which is all the caption grouper needs."""
+    words = []
+    for s, e, line in SAMPLE_LINES:
+        ws = line.split()
+        step = (e - s) / len(ws)
+        for i, w in enumerate(ws):
+            words.append({"text": w, "start": round(s + i * step, 3),
+                          "end": round(s + (i + 1) * step - 0.06, 3)})
+    return words
+
+
+def sample_plan(fps, width, height):
+    return {
+        "meta": {"title": "reelkit sample - synthetic clip", "lang": "en",
+                 "fps": fps, "width": width, "height": height},
+        "captions": {"enabled": True},
+        "beats": [
+            {"id": "b01", "kind": "hero", "mode": "top", "start": 0.6, "end": 3.8,
+             "intent": "hook - one file is the whole reel",
+             "data": {"text": "One file, whole reel",
+                      "note": "plan.json drives everything", "icon": "bolt"}},
+            {"id": "b02", "kind": "checklist", "mode": "stage", "start": 4.0, "end": 7.8,
+             "intent": "the workflow in three steps",
+             "data": {"items": ["transcribe the take", "plan the beats",
+                                "verify before render"], "clock": True}},
+            {"id": "b03", "kind": "stat", "mode": "top", "start": 8.0, "end": 11.6,
+             "intent": "close - the library size",
+             "data": {"from": 0, "to": 15, "unit": "beat kinds",
+                      "note": "one deterministic build", "dur": 1.15}},
+        ],
+    }
+
+
+def sample_project(project, fps, width, height):
+    """A full pipeline run without real footage: generate a synthetic clip with
+    ffmpeg, scaffold it, and drop in a canned transcript + plan so every command
+    (build / check / verify / snapshot / render) has real input to work on."""
+    os.makedirs(project, exist_ok=True)
+    raw = os.path.join(project, "sample-raw.mp4")
+    if not os.path.exists(raw):
+        cmd = ["ffmpeg", "-y",
+               # A slow dark gradient, not testsrc2: talking-head reels sit over
+               # dim, smooth backgrounds, and a color-noise pattern trips the
+               # HyperFrames contrast lint on footage that is nothing like the
+               # domain this skill serves.
+               "-f", "lavfi", "-i", f"gradients=size={width}x{height}:rate={fps}:duration=12:c0=0x1a1a22:c1=0x3a3a4a:speed=0.04",
+               "-f", "lavfi", "-i", "sine=frequency=180:duration=12",
+               "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+               "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
+               "-shortest", raw, "-loglevel", "error"]
+        r = sh(cmd)
+        if r.returncode != 0 or not os.path.exists(raw):
+            die(f"ffmpeg failed:\n{r.stderr[-1200:]}")
+        print(f"reelkit: generated synthetic 12s clip {raw} (animated gradient, not footage)")
+    scaffold(project, raw, fps, width, height, upscale=False)
+    json.dump(sample_words(), open(os.path.join(project, "transcript.json"), "w",
+                                   encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(sample_plan(fps, width, height),
+              open(os.path.join(project, "plan.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, indent=2)
+    s = os.path.join(SKILL, "scripts", "reelkit.py")
+    print("reelkit: transcript.json and plan.json are canned fixtures (the synthetic "
+          "audio has no speech, so there is nothing to transcribe)")
+    print(f"reelkit: next -> python3 {s} build --project {project}")
+    print(f"            (cd {project} && npx hyperframes@latest check public)")
+    print(f"            python3 {s} verify --project {project}")
+    print("note: face detection finds no head in a gradient - that part of "
+          "verify only exercises on real footage")
+    return 0
+
+
 # ------------------------------------------------------------------ cut (opt-in)
 def cut_video(src, dest, keeps, fps):
     """Trim/reorder BEFORE the pipeline. Deliberately a separate step: the whole
@@ -938,6 +1022,9 @@ def main():
                     help='ranges in source seconds: "0:44,56:90" (applied in order)')
     d = sub.add_parser("plan"); d.add_argument("--project", required=True)
     d.add_argument("--lang", default="en"); d.add_argument("--max-beats", type=int, default=0)
+    sa = sub.add_parser("sample"); sa.add_argument("--project", required=True)
+    sa.add_argument("--fps", type=int, default=30)
+    sa.add_argument("--width", type=int, default=1080); sa.add_argument("--height", type=int, default=1920)
     sub.add_parser("doctor")
     a = ap.parse_args()
     if a.cmd == "scaffold":
@@ -952,6 +1039,8 @@ def main():
     if a.cmd == "cut":
         keeps = [[float(x) for x in seg.split(":")] for seg in a.keep.split(",")]
         return cut_video(a.video, a.out, keeps, a.fps)
+    if a.cmd == "sample":
+        return sample_project(a.project, a.fps, a.width, a.height)
     return doctor()
 
 

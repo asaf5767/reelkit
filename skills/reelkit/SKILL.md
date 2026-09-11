@@ -52,6 +52,17 @@ looks like a broken composition. It is not; it is a slow box.
 
 ---
 
+### Try it without footage
+
+```bash
+python3 scripts/reelkit.py sample --project videos/sample
+```
+
+generates a synthetic 12s clip (ffmpeg gradient, nothing real), scaffolds it, and
+drops in a canned transcript and plan, so the whole pipeline below can be
+exercised end to end. Face detection finds no head in a gradient - that check
+only exercises on real footage.
+
 ## 1. Scaffold
 
 ```bash
