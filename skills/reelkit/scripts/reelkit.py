@@ -31,7 +31,7 @@ DEFAULT_BRAND = {
     "captionTop": 1500, "captionHeight": 360,
     "captionPlate": "rgba(5,6,10,.60)", "captionIdle": "#FFFFFF",
     # split-mode canvas is a LIGHT surface - the opposite mood from stage/full
-    "canvasBg": "#F7F7F4", "canvasText": "#14161C", "canvasMuted": "#8A8F98",
+    "canvasBg": "#F7F7F4", "canvasText": "#14161C", "canvasMuted": "#858A93",
 }
 
 
@@ -146,7 +146,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .cblock {{ display:flex;flex-direction:column;gap:18px;text-align:{START};
  direction:{D}; }}
 {P} .ckicker {{ font-size:34px;font-weight:800;letter-spacing:.16em;
- text-transform:uppercase;color:{br.get('canvasMuted', '#8A8F98')}; }}
+ text-transform:uppercase;color:{br.get('canvasMuted', '#858A93')}; }}
 {P} .chead {{ font-size:96px;font-weight:900;line-height:1.10;
  color:{br.get('canvasText', '#14161C')};letter-spacing:-.015em; }}
 {P} .cpill {{ position:absolute;{START}:64px;bottom:34px;
@@ -181,7 +181,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
  color:{br.get('canvasText', '#14161C')};direction:{D};text-align:{START};
  border:3px dashed {A[4]};border-radius:20px;background:rgba(0,0,0,.03); }}
 {P} .cimgcap {{ flex:0 0 auto;font-size:30px;font-weight:700;text-align:{START};
- direction:{D};color:{br.get('canvasMuted', '#8A8F98')}; }}""" if cimg else ""
+ direction:{D};color:{br.get('canvasMuted', '#858A93')}; }}""" if cimg else ""
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
@@ -241,7 +241,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .code {{ padding:22px 24px;font:700 30px '{br['latinFont']}',ui-monospace,monospace;
  line-height:1.62;position:relative; }}
 {P} .cl {{ display:flex;gap:18px;white-space:nowrap; }}
-{P} .gut {{ color:#4a5468;width:32px;text-align:right;flex:0 0 auto; }}
+{P} .gut {{ color:#576073;width:32px;text-align:right;flex:0 0 auto; }}
 {P} .code .kw {{ color:{A[2]}; }} {P} .code .fn {{ color:{A[1]}; }} {P} .code .st {{ color:{A[3]}; }}
 {P} .ccur {{ width:16px;height:32px;background:{A[0]};display:inline-block;margin-inline-start:52px; }}
 {P} .dl {{ display:flex;gap:16px;white-space:nowrap;border-radius:8px;padding:4px 10px;margin:3px 0; }}
