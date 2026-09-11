@@ -22,7 +22,8 @@ Writes verify.json and prints a report. Exit code 1 if any ERROR-level finding.
 import argparse, json, os, statistics, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cards import split_canvas_h   # noqa: E402
+from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
+                   detect_faces, EYE_LINE, CANVAS_MARGIN, CANVAS_MIN)  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -41,38 +42,6 @@ except Exception:
 
 def sh(cmd):
     return subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=True, text=True)
-
-
-# ------------------------------------------------------------------ face
-def detect_faces(video, times, W, H):
-    """Median head box across sampled frames, in canvas pixels."""
-    if not HAVE_CV2:
-        return {}
-    casc = cv2.CascadeClassifier(
-        os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"))
-    cap = cv2.VideoCapture(video)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    vw = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or W
-    vh = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or H
-    sx, sy = W / vw, H / vh
-    out = {}
-    for key, ts in times.items():
-        boxes = []
-        for t in ts:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * fps))
-            ok, frame = cap.read()
-            if not ok:
-                continue
-            g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            g = cv2.equalizeHist(g)
-            f = casc.detectMultiScale(g, 1.15, 6, minSize=(int(vw * 0.10), int(vw * 0.10)))
-            if len(f):
-                x, y, w, h = max(f, key=lambda b: b[2] * b[3])
-                boxes.append((x * sx, y * sy, w * sx, h * sy))
-        if boxes:
-            out[key] = [round(statistics.median([b[i] for b in boxes]), 1) for i in range(4)]
-    cap.release()
-    return out
 
 
 # ------------------------------------------------------------------ geometry
@@ -174,7 +143,12 @@ def run(project, as_json, fix):
             cbox = {"x": 0.0, "y": 0.0, "w": float(W), "h": float(ch)}
             if face:
                 fx, fy, fw, fh = face
-                so = overlap_pct(cbox, (fx, fy + fh * 0.30, fw, fh * 0.70))
+                # Band-relative, not canvas-relative: "covers X% of the
+                # eyes/mouth" must mean what it says. Measured against the big
+                # canvas rect, a panel swallowing the whole face reads ~5%.
+                band = (fx, fy + fh * EYE_LINE, fw, fh * (1 - EYE_LINE))
+                so = overlap_pct({"x": band[0], "y": band[1], "w": band[2], "h": band[3]},
+                                 (0, 0, W, ch))
                 row["canvasFaceOverlapPct"] = so
                 if so >= 12:
                     findings.append(("ERROR", cid,
@@ -199,7 +173,7 @@ def run(project, as_json, fix):
                 # Only the lower ~70% matters: cards arrive from above, and
                 # clipping the top of the hair is harmless. Eyes and mouth are not.
                 fx, fy, fw, fh = face
-                expr = (fx, fy + fh * 0.30, fw, fh * 0.70)
+                expr = (fx, fy + fh * EYE_LINE, fw, fh * (1 - EYE_LINE))
                 fo = overlap_pct(box, expr)
                 row["faceOverlapPct"] = fo
                 dims = mode == "stage" or (mode == "full" and b.get("takeover"))
@@ -276,6 +250,7 @@ def run(project, as_json, fix):
 
 def apply_fixes(project, plan, boxes, faces, findings):
     """Only mechanical remedies. Anything needing judgement is reported, not fixed."""
+    H = int(plan.get("meta", {}).get("height", 1920))
     changed = 0
     # split: shrink the canvas until it clears the eyes. Mechanical - the canvas
     # top edge is fixed, so only its height is in question.
@@ -285,11 +260,8 @@ def apply_fixes(project, plan, boxes, faces, findings):
         if b["id"] not in split_bad or b.get("mode") != "split":
             continue
         face = faces.get(b["id"])
-        if not face:
-            continue
-        fy, fh = face[1], face[3]
-        safe = int(fy + fh * 0.30) - 32          # clear of the eye line
-        if safe >= 320:
+        safe = face_safe_canvas_h(face, H)
+        if safe is not None and safe >= CANVAS_MIN:
             b.setdefault("layout", {})["canvas"] = safe
             changed += 1
 

@@ -10,7 +10,7 @@ Contract rules that MUST hold (HyperFrames lint + RTL safety):
   * dir="rtl" goes on individual TEXT elements, never on <html>
   * words are wrapped in .wd (white-space:nowrap) so they never break mid-word
 """
-import html
+import html, os, statistics
 
 def esc(s):
     return html.escape(str(s), quote=True)
@@ -174,6 +174,71 @@ def split_canvas_h(layout, H):
     v = float(v)
     px = int(round(H * v)) if v <= 1.0 else int(round(v))
     return max(160, min(H - 200, px))       # always leave room for the speaker
+
+
+# ---------------------------------------------------------- face-aware sizing
+EYE_LINE = 0.30      # eyes sit ~30% down a detected head box
+CANVAS_MARGIN = 32   # the canvas stops this many px above the eye line
+CANVAS_MIN = 320     # below this a split canvas is too shallow to be useful
+
+
+def face_safe_canvas_h(face, H):
+    """Largest split-canvas height that keeps the speaker's eyes and mouth
+    clear, or None when no head was detected (caller keeps the requested
+    height)."""
+    if not face:
+        return None
+    return int(face[1] + face[3] * EYE_LINE) - CANVAS_MARGIN
+
+
+def split_canvas_h_face(layout, H, face):
+    """The requested split canvas, capped so the panel never crosses the
+    detected eyes. Returns (px, cleared): cleared=False means even CANVAS_MIN
+    cannot clear the head - the framing is too tight for split mode and the
+    caller should say so instead of pretending the canvas is safe."""
+    req = split_canvas_h(layout, H)
+    safe = face_safe_canvas_h(face, H)
+    if safe is None:
+        return req, True
+    if safe < CANVAS_MIN:
+        return CANVAS_MIN, False
+    return min(req, safe), True
+
+
+def detect_faces(video, times, W, H):
+    """Median head box per key across sampled timestamps, in canvas pixels.
+    Shared by the builder (face-aware split sizing) and verify (enforcement)
+    so both reason about the same head. Returns {} when cv2 is unavailable -
+    callers treat that as "no information", never as "no head"."""
+    try:
+        import cv2
+    except Exception:
+        return {}
+    casc = cv2.CascadeClassifier(
+        os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"))
+    cap = cv2.VideoCapture(video)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    vw = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or W
+    vh = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or H
+    sx, sy = W / vw, H / vh
+    out = {}
+    for key, ts in times.items():
+        boxes = []
+        for t in ts:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * fps))
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            g = cv2.equalizeHist(g)
+            f = casc.detectMultiScale(g, 1.15, 6, minSize=(int(vw * 0.10), int(vw * 0.10)))
+            if len(f):
+                x, y, w, h = max(f, key=lambda b: b[2] * b[3])
+                boxes.append((x * sx, y * sy, w * sx, h * sy))
+        if boxes:
+            out[key] = [round(statistics.median([b[i] for b in boxes]), 1) for i in range(4)]
+    cap.release()
+    return out
 
 
 def DIR(br):

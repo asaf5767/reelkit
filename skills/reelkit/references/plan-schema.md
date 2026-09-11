@@ -111,10 +111,16 @@ structural beats of a reel - the point being made, not the decoration around it.
 - `kind: "canvas"` is the only kind designed for the light panel. Every other
   kind assumes a dark surface and will render low-contrast inside it.
 
-The default 56% is measured from a reference cut, and it is not universal - on
-footage where the speaker sits high in frame it clips the eye line. `verify`
-measures this per project and `verify --fix` lowers `layout.canvas` to a value
-that clears the eyes, so do not hand-tune the default: run the gate.
+The default 56% is measured from a reference cut, and it is a ceiling, not a
+guarantee: on footage where the speaker sits high in frame it would clip the eye
+line. `build` therefore detects the head in the footage and caps every split
+beat's canvas above the eye line (persisting the resolved pixels into
+`layout.canvas`, so build and verify see the same panel). When the speaker is so
+high that even the minimum 320px panel would cross the eyes, build warns that the
+framing is too tight for split mode and `verify` fails the beat - pick another
+mode for it. When no head is detected (cv2 missing, or no face in frame), the
+requested height is kept and the note is printed, so do not hand-tune the
+default: run the gate.
 
 ## kinds
 

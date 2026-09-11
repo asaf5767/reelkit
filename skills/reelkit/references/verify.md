@@ -44,11 +44,15 @@ Without the mode rule every `stage` beat in a normal reel reports as a defect,
 which trains you to ignore the tool.
 
 **`split` is checked against the panel, not the card.** The light panel is opaque,
-so anything under it is gone — the check measures the panel rectangle
-(`layout.canvas`, default 56% of frame height) against the speaker's eye line and
-against the caption band. Error at 12% face overlap, warning at 4%, and any reach
-into the caption band is an error. Builder and checker call the same
-`split_canvas_h()`, so they cannot disagree about where the panel sits.
+so anything under it is gone — the check measures how much of the speaker's
+eye/mouth band the panel rectangle (`layout.canvas`, default 56% of frame height)
+covers, band-relative so a large panel cannot dilute the number, plus any reach
+into the caption band. Error at 12% of the band covered, warning at 4%, and any
+reach into the caption band is an error. Builder and checker share
+`split_canvas_h()` and the same face detection, so they cannot disagree about
+where the panel sits. `build` already caps the panel above the eye line per beat;
+this check is the enforcement behind it, including for plans written before that
+cap existed.
 
 ## `--fix`
 

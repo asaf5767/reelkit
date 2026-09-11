@@ -16,7 +16,8 @@ Everything is deterministic: same plan.json + same media => byte-identical HTML.
 import argparse, json, os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
-                   lang_direction as cards_lang_direction, split_canvas_h)
+                   lang_direction as cards_lang_direction, split_canvas_h,
+                   split_canvas_h_face, detect_faces, CANVAS_MARGIN)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -341,6 +342,37 @@ def build(project):
     for b in plan["beats"]:
         if float(b["start"]) >= dur:
             warn.append(f"beat {b['id']} starts at {b['start']}s, past the media ({dur}s) - it will never show")
+
+    # ---- face-aware split canvases ----------------------------------------
+    # A fixed canvas height cannot be safe on arbitrary framing: a tight
+    # close-up puts the eyes where a loose wide shot has empty air. Resolve
+    # each split beat's canvas against the detected head and persist the
+    # result into plan.json, so build and verify reason about the same pixels.
+    splits = [b for b in plan["beats"] if b.get("mode") == "split"]
+    if splits:
+        ftimes = {b["id"]: [float(b["start"]) + (float(b["end"]) - float(b["start"])) * f
+                            for f in (0.2, 0.5, 0.8)] for b in splits}
+        faces = detect_faces(vid, ftimes, W, H)
+        if faces:
+            changed = False
+            for b in splits:
+                px, cleared = split_canvas_h_face(b.get("layout"), H, faces.get(b["id"]))
+                cur = split_canvas_h(b.get("layout"), H)
+                if not cleared:
+                    warn.append(f"beat {b['id']}: the speaker's eyes sit around y="
+                                f"{px + CANVAS_MARGIN}px - even the minimum split canvas "
+                                f"would cross them; this framing is too tight for split mode")
+                elif px != cur:
+                    b.setdefault("layout", {})["canvas"] = px
+                    changed = True
+                    print(f"reelkit: split {b['id']} canvas {cur}px -> {px}px "
+                          f"(capped above the speaker's eyes)")
+            if changed:
+                json.dump(plan, open(plan_path, "w", encoding="utf-8"),
+                          ensure_ascii=False, indent=2)
+        else:
+            print("reelkit: note - no head detected in the footage; split canvases keep "
+                  "their requested height (verify enforces the boundary when a head is found)")
 
     # Counter pills read "i / n" across the split beats only.
     _splits = [b["id"] for b in plan["beats"] if b.get("mode") == "split"]
