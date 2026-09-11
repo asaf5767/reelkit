@@ -1140,6 +1140,100 @@ def scaffold(project, video, fps, width, height, upscale):
     return 0
 
 
+# --------------------------------------------------------------- export ----
+# The WhatsApp-safe deliverable container. A moov atom written at the END of
+# the file (ffmpeg's default) opens fine on desktop and errors on phones and
+# in WhatsApp - a defect that shipped exactly this way. The deliverable
+# profile is: h264 High yuv420p video, explicit bt709 colour tags, moov
+# before mdat (+faststart), AAC audio.
+
+def _mp4_atoms(path):
+    """Top-level atom types in file order, reading only box headers."""
+    import struct
+    types, pos, total = [], 0, os.path.getsize(path)
+    with open(path, "rb") as f:
+        while pos + 8 <= total:
+            f.seek(pos)
+            size, typ = struct.unpack(">I4s", f.read(8))
+            hdr = 8
+            if size == 1:
+                size = struct.unpack(">Q", f.read(8))[0]; hdr = 16
+            elif size == 0:
+                size = total - pos
+            types.append(typ.decode("latin1"))
+            if size < hdr:
+                break
+            pos += size
+    return types
+
+
+def _stream_info(path):
+    r = sh(["ffprobe", "-v", "error", "-print_format", "json",
+            "-show_entries", "stream=codec_type,codec_name,pix_fmt,color_space", path])
+    try:
+        streams = json.loads(r.stdout).get("streams", [])
+    except Exception:
+        streams = []
+    v = next((s for s in streams if s.get("codec_type") == "video"), {})
+    a = next((s for s in streams if s.get("codec_type") == "audio"), {})
+    return v, a
+
+
+def container_problems(path):
+    """Phone-safe container audit for a deliverable MP4. Returns
+    [(level, message)]: ERROR = phones/WhatsApp fail to open it,
+    WARN = plays but renders wrong."""
+    probs = []
+    atoms = _mp4_atoms(path)
+    if "moov" in atoms and "mdat" in atoms and atoms.index("moov") > atoms.index("mdat"):
+        probs.append(("ERROR", "MP4 index (moov) sits after the media data - WhatsApp and "
+                               "many mobile players fail to open it; run `reelkit.py export`"))
+    v, a = _stream_info(path)
+    if v.get("codec_name") not in (None, "h264"):
+        probs.append(("ERROR", f"video codec {v.get('codec_name')} is not phone-safe (need h264)"))
+    if v and v.get("pix_fmt") not in (None, "yuv420p"):
+        probs.append(("ERROR", f"pixel format {v.get('pix_fmt')} is not phone-safe (need yuv420p)"))
+    if v and v.get("color_space") != "bt709":
+        probs.append(("WARN", "no explicit bt709 colour tags - phones guess the colour space; "
+                              "`reelkit.py export` writes them"))
+    if a and a.get("codec_name") != "aac":
+        probs.append(("WARN", f"audio codec {a.get('codec_name')} - AAC is the safe choice"))
+    return probs
+
+
+def export_deliverable(project, inp, out):
+    src = inp if os.path.isabs(inp) else os.path.join(project, inp)
+    if not os.path.exists(src):
+        die(f"{src} not found - render first (`npx hyperframes render public -o {inp}`)")
+    dst = out if os.path.isabs(out) else os.path.join(project, out)
+    v, a = _stream_info(src)
+    if v.get("codec_name") == "h264" and v.get("pix_fmt") == "yuv420p" \
+            and a.get("codec_name") in (None, "aac"):
+        # Codecs already safe: lossless remux to bring the index forward and
+        # write the colour tags.
+        cmd = ["ffmpeg", "-y", "-i", src, "-c", "copy", "-movflags", "+faststart",
+               "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1",
+               dst, "-loglevel", "error"]
+        how = "remuxed (codecs already phone-safe)"
+    else:
+        cmd = ["ffmpeg", "-y", "-i", src,
+               "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-profile:v", "high",
+               "-pix_fmt", "yuv420p", "-color_primaries", "1", "-color_trc", "1",
+               "-colorspace", "1", "-movflags", "+faststart",
+               "-c:a", "aac", "-b:a", "160k", dst, "-loglevel", "error"]
+        how = "re-encoded to the phone-safe profile"
+    r = sh(cmd)
+    if r.returncode != 0 or not os.path.exists(dst):
+        die(f"ffmpeg failed:\n{r.stderr[-1200:]}")
+    left = [(l, m) for l, m in container_problems(dst) if l == "ERROR"]
+    if left:
+        die("export wrote a file that still fails its own container check: "
+            + "; ".join(m for _, m in left))
+    print(f"reelkit: {how} -> {dst} ({probe_duration(dst):.2f}s)")
+    print("reelkit: container audit clean (moov first, bt709 tagged, h264/yuv420p/aac)")
+    return 0
+
+
 def doctor():
     ok = True
     for tool, why in (("ffmpeg", "encode/decode"), ("ffprobe", "media probing"),
@@ -1193,6 +1287,8 @@ def main():
     sa = sub.add_parser("sample"); sa.add_argument("--project", required=True)
     sa.add_argument("--fps", type=int, default=30)
     sa.add_argument("--width", type=int, default=1080); sa.add_argument("--height", type=int, default=1920)
+    e = sub.add_parser("export"); e.add_argument("--project", required=True)
+    e.add_argument("--input", default="output.mp4"); e.add_argument("--out", default="final.mp4")
     sub.add_parser("doctor")
     a = ap.parse_args()
     if a.cmd == "scaffold":
@@ -1204,6 +1300,8 @@ def main():
     if a.cmd == "verify":
         import verify as _v
         return _v.run(a.project, a.json, a.fix)
+    if a.cmd == "export":
+        return export_deliverable(a.project, a.input, a.out)
     if a.cmd == "cut":
         keeps = [[float(x) for x in seg.split(":")] for seg in a.keep.split(",")]
         return cut_video(a.video, a.out, keeps, a.fps)

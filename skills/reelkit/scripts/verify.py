@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
                    detect_faces, EYE_LINE, CANVAS_MARGIN, CANVAS_MIN,
                    CANVAS_IMG_MIN)  # noqa: E402
+from reelkit import container_problems  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -248,6 +249,14 @@ def run(project, as_json, fix):
             findings.append(("ERROR", bs[i]["id"],
                              f"overlaps {bs[i+1]['id']} ({bs[i]['end']} > {bs[i+1]['start']})"))
 
+    # Deliverable container audit: final.mp4 must open on phones, not only
+    # on this machine. A moov atom after mdat is the "works on my desktop,
+    # errors in WhatsApp" defect.
+    final = os.path.join(project, "final.mp4")
+    if os.path.exists(final):
+        for lvl, msg in container_problems(final):
+            findings.append((lvl, "final.mp4", msg))
+
     out = {"canvas": {"w": W, "h": H}, "faceDetection": HAVE_CV2, "cardGeometry": HAVE_PW,
            "beats": report,
            "findings": [{"level": l, "id": i, "message": m} for l, i, m in findings]}
@@ -258,6 +267,14 @@ def run(project, as_json, fix):
         applied = apply_fixes(project, plan, boxes, faces, findings)
         if applied:
             print(f"reelkit verify: applied {applied} fix(es) to plan.json - rebuild to take effect")
+        if any(l == "ERROR" and c == "final.mp4" and "moov" in m for l, c, m in findings):
+            r = sh(["ffmpeg", "-y", "-i", final, "-c", "copy", "-movflags", "+faststart",
+                    "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1",
+                    final + ".fix.mp4", "-loglevel", "error"])
+            if r.returncode == 0 and not [p for p in container_problems(final + ".fix.mp4")
+                                          if p[0] == "ERROR"]:
+                os.replace(final + ".fix.mp4", final)
+                print("reelkit verify: fixed final.mp4 - index moved to front, bt709 tags written")
 
     if as_json:
         print(json.dumps(out, ensure_ascii=False, indent=2))

@@ -196,15 +196,16 @@ Fix, rebuild, re-snapshot. Snapshots cost seconds; a render costs minutes.
 
 ```bash
 npx hyperframes@latest render public -o output.mp4 --fps 30
+python3 scripts/reelkit.py export --project videos/myreel   # writes final.mp4
+python3 scripts/reelkit.py verify --project videos/myreel   # gates the deliverable too
 ```
 
-Roughly 8 min per 2000 frames on 2 CPUs. Then compress for delivery — most chat
-and upload paths cap around 30 MB:
-
-```bash
-ffmpeg -y -i output.mp4 -c:v libx264 -preset medium -crf 23 -profile:v high \
-  -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 160k final.mp4
-```
+Roughly 8 min per 2000 frames on 2 CPUs. `export` writes the phone-safe
+container: moov index first (+faststart), explicit bt709 colour tags, h264
+High yuv420p, AAC. A moov atom at the end of the file - ffmpeg's default -
+opens fine on a desktop and **errors on phones and in WhatsApp**, which is
+exactly where reels get watched. Never hand-patch this with a bare
+`ffmpeg -i` copy.
 
 ## 8. Trimming (opt-in)
 
@@ -267,6 +268,10 @@ These are not style preferences. Each one is a defect that shipped or nearly shi
 9. **Keep the speaker's face clear.** Content beats belong in the empty space above
    the head. Covering the mouth of a talking head is the most common self-inflicted
    wound in this format.
+10. **Never ship an MP4 with its index at the end.** Desktop players tolerate a
+    trailing moov atom; phones and WhatsApp refuse to open the file. Deliver
+    through `reelkit.py export` (faststart + bt709 tags) and let `verify` gate
+    it - local playback is not evidence of compatibility.
 
 Full explanations and the RTL specifics: `references/rtl-and-fonts.md` and
 `references/troubleshooting.md`.
