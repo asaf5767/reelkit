@@ -123,7 +123,7 @@ text-shadow:0 4px 22px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.95);}}
 """.strip()
 
 
-def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide"):
+def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
     D = br.get("_dir", "rtl"); START = "right" if D == "rtl" else "left"
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
@@ -153,8 +153,15 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide"):
  font-family:'{br['latinFont']}',sans-serif;font-size:28px;font-weight:900;
  letter-spacing:.10em;color:{br.get('canvasText', '#14161C')};
  background:rgba(0,0,0,.06);border:2px solid rgba(0,0,0,.16);
- border-radius:999px;padding:10px 26px; }}
+ border-radius:999px;padding:10px 26px; }}""" if mode == "split" else ""
+    # Image-payload rules exist only on beats that carry one, so an
+    # imageless split project still rebuilds byte-identically.
+    canvas_css += f"""
 {P} .cpane {{ display:flex;flex-direction:{'row' if fit == 'tall' else 'column'};
+ /* flex row order follows the content direction: in RTL the text block leads
+    from the right edge and the picture lands on the left, matching the box
+    canvas_image_box() publishes to visuals.json */
+ direction:{D};
  gap:{'40px' if fit == 'tall' else '22px'};align-items:stretch;
  flex:1 1 auto;min-height:0;min-width:0;
  /* the counter pill is absolutely positioned in the panel's bottom-start
@@ -174,7 +181,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide"):
  color:{br.get('canvasText', '#14161C')};direction:{D};text-align:{START};
  border:3px dashed {A[4]};border-radius:20px;background:rgba(0,0,0,.03); }}
 {P} .cimgcap {{ flex:0 0 auto;font-size:30px;font-weight:700;text-align:{START};
- direction:{D};color:{br.get('canvasMuted', '#8A8F98')}; }}""" if mode == "split" else ""
+ direction:{D};color:{br.get('canvasMuted', '#8A8F98')}; }}""" if cimg else ""
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
@@ -500,7 +507,7 @@ def build(project):
                      else '<div class="scrim stage"></div>' if mode == "stage"
                      else '<div class="scrim"></div>')
         frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n'
-                f'{card_css(cid, mode, br, beat.get("layout"), canvas_h, cfit)}\n</style>\n'
+                f'{card_css(cid, mode, br, beat.get("layout"), canvas_h, cfit, bool(cimg))}\n</style>\n'
                 f'<div class="root">{scrim}{body}</div>\n</div>')
         open(os.path.join(pub, "cards", f"{cid}.html"), "w", encoding="utf-8").write(frag)
 
