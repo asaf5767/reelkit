@@ -76,8 +76,12 @@ class Anim:
                 f"yoyo:true,repeat:{reps},ease:'power1.inOut'}},{self.q(t)});")
 
     def move(self, sel, t, d, frm, to, ease="power1.inOut"):
+        # immediateRender:false - `move` is always part of a sequence, and without
+        # it the LAST authored hop's from-position becomes the element's resting
+        # state for any seek before the sequence starts.
         return (f"tl.fromTo({sel},{{x:{frm[0]},y:{frm[1]}}},"
-                f"{{x:{to[0]},y:{to[1]},duration:{d},ease:'{ease}'}},{self.q(t)});")
+                f"{{x:{to[0]},y:{to[1]},duration:{d},ease:'{ease}',"
+                f"immediateRender:false}},{self.q(t)});")
 
     def kenburns(self, sel, t, d, a=1.0, b=1.08):
         return (f"tl.fromTo({sel},{{scale:{a}}},{{scale:{b},duration:{d},ease:'none'}},{self.q(t)});")

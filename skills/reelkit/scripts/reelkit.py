@@ -416,11 +416,23 @@ def build(project):
                     t1 = an.q(t0 + 0.10)
                 on = round(min(0.09, max(0.0333, t1 - t0 - 0.0001)), 4)
                 off = round(min(0.13, max(0.0666, e - 0.02 - t1)), 4)
+                # Baseline + immediateRender:false. GSAP applies a fromTo's
+                # from-values at AUTHORING time, so with two fromTo calls per word
+                # the second one's from-state (highlighted) silently became the
+                # word's resting state - every word rendered pre-highlighted before
+                # it was spoken, and the karaoke only read on the way out.
+                tls.append(f"tl.set({wsel},{{color:'{br['captionIdle']}',opacity:.52,scale:1}},{s});")
                 tls.append(f"tl.fromTo({wsel},{{color:'{br['captionIdle']}',opacity:.52,scale:1}},"
-                           f"{{color:'{hi}',opacity:1,scale:1.06,duration:{on},ease:'power2.out'}},{t0});")
+                           f"{{color:'{hi}',opacity:1,scale:1.06,duration:{on},ease:'power2.out',"
+                           f"immediateRender:false}},{t0});")
                 tls.append(f"tl.fromTo({wsel},{{color:'{hi}',opacity:1,scale:1.06}},"
-                           f"{{color:'{br['captionIdle']}',opacity:.94,scale:1,duration:{off},ease:'power2.in'}},{t1});")
-            tls.append(f"tl.to({sel},{{opacity:0,duration:0.12,ease:'power2.in'}},{an.q(e-0.12)});")
+                           f"{{color:'{br['captionIdle']}',opacity:.94,scale:1,duration:{off},"
+                           f"ease:'power2.in',immediateRender:false}},{t1});")
+            # A very short caption line would otherwise start fading out before its
+            # fade-in finished - two tweens on one property at once.
+            out_at = an.q(max(s + 0.16, e - 0.12))
+            out_dur = round(max(0.04, e - out_at), 4)
+            tls.append(f"tl.to({sel},{{opacity:0,duration:{out_dur},ease:'power2.in'}},{out_at});")
             tls.append(f"tl.set({sel},{{visibility:'hidden'}},{e});")
 
     sfx_tags, sfx_names = resolve_sfx(plan, pub, dur, an)

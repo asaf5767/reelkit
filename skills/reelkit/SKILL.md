@@ -236,22 +236,26 @@ These are not style preferences. Each one is a defect that shipped or nearly shi
 
 1. **Never put `dir` on `<html>`.** It previews perfectly and renders a fully black
    video. Direction goes on individual text elements.
-2. **Every animation is `fromTo`, never `to`.** A bare `.to()` samples its start
+2. **Two `fromTo` calls on one element need a baseline.** GSAP applies from-values
+   at authoring time, so the last-authored one becomes the resting state. Add a
+   `tl.set()` at the sequence's start and `immediateRender: false` on the tweens,
+   or the element renders in the wrong state until its first tween runs.
+3. **Every animation is `fromTo`, never `to`.** A bare `.to()` samples its start
    value at first render, so seeking to a frame yields a different image than
    playing to it. Renders seek.
-3. **Wrap words before characters.** Per-character `inline-block` spans alone let a
+4. **Wrap words before characters.** Per-character `inline-block` spans alone let a
    word break mid-word across lines.
-4. **Use `svgOrigin` for SVG rotation**, not `transformOrigin` — the latter resolves
+5. **Use `svgOrigin` for SVG rotation**, not `transformOrigin` — the latter resolves
    against the element bbox, not the viewBox, and silently misplaces the pivot.
-5. **Never hardcode a text direction.** Take it from the composition
+6. **Never hardcode a text direction.** Take it from the composition
    (`DIR(br)` in `cards.py`), which resolves from `meta.lang`. Bidi reorders text
    runs, not boxes you positioned — so hardcoded `dir="rtl"` renders English
    kinetic type and captions reversed, and every gate still passes.
-6. **Load a font that has the script.** Inter, Caveat and most bundled faces carry
+7. **Load a font that has the script.** Inter, Caveat and most bundled faces carry
    no Hebrew or Arabic glyphs; text renders as tofu boxes. reelkit ships Heebo.
-7. **Clamp every time to the media duration.** Whisper returns a final word ending
+8. **Clamp every time to the media duration.** Whisper returns a final word ending
    a hair past the clip; an uncapped card produces a black tail.
-8. **Keep the speaker's face clear.** Content beats belong in the empty space above
+9. **Keep the speaker's face clear.** Content beats belong in the empty space above
    the head. Covering the mouth of a talking head is the most common self-inflicted
    wound in this format.
 
