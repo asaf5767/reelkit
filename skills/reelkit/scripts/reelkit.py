@@ -118,10 +118,11 @@ text-shadow:0 4px 22px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.95);}}
 """.strip()
 
 
-def card_css(cid, mode, br):
+def card_css(cid, mode, br, layout=None):
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
-    pad = "300px 0 0 0" if mode == "stage" else "140px 0 0 0"
+    top = (layout or {}).get("top")
+    pad = f"{int(top)}px 0 0 0" if top is not None else ("300px 0 0 0" if mode == "stage" else "140px 0 0 0")
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
@@ -292,6 +293,17 @@ def build(project):
                    f"{{scale:{round(base*float(p['to']),4)},duration:{p.get('dur',0.9)},"
                    f"ease:'power2.inOut'}},{an.q(p['at'])});")
 
+    # ---- static checks before anything is written -------------------------
+    warn = []
+    srt = sorted(plan["beats"], key=lambda b: float(b["start"]))
+    for i in range(len(srt) - 1):
+        if float(srt[i]["end"]) > float(srt[i + 1]["start"]) + 1e-6:
+            warn.append(f"beats {srt[i]['id']} and {srt[i+1]['id']} overlap "
+                        f"({srt[i]['end']} > {srt[i+1]['start']}) - both will render")
+    for b in plan["beats"]:
+        if float(b["start"]) >= dur:
+            warn.append(f"beat {b['id']} starts at {b['start']}s, past the media ({dur}s) - it will never show")
+
     # ---- beats ------------------------------------------------------------
     for beat in plan["beats"]:
         cid = beat["id"]; st = an.q(beat["start"]); en = an.q(min(beat["end"], dur))
@@ -340,9 +352,20 @@ def build(project):
         scrim = ('<div class="scrim full"></div>' if mode == "full"
                  else '<div class="scrim stage"></div>' if mode == "stage"
                  else '<div class="scrim"></div>')
-        frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n{card_css(cid, mode, br)}\n</style>\n'
+        frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n'
+                f'{card_css(cid, mode, br, beat.get("layout"))}\n</style>\n'
                 f'<div class="root">{scrim}{body}</div>\n</div>')
         open(os.path.join(pub, "cards", f"{cid}.html"), "w", encoding="utf-8").write(frag)
+
+        first_at = None
+        for st_ in g:
+            m = re.search(r",([0-9.]+)\);\s*$", st_)
+            if m:
+                v = float(m.group(1))
+                first_at = v if first_at is None else min(first_at, v)
+        if first_at is not None and first_at - st > 0.8:
+            warn.append(f"beat {cid} renders {round(first_at - st, 2)}s before its first animation - "
+                        f"it will sit visibly empty")
 
         hosts.append(f'<div class="card-host clip" data-card-id="{cid}" data-composition-id="{cid}" '
                      f'data-start="{st:.4f}" data-duration="{en-st:.4f}" data-track-index="2" '
@@ -467,6 +490,8 @@ window.__timelines["reelkit"] = tl;
                 ", ".join(f"{h:.2f}" for h in hits) + "\n")
     open(os.path.join(project, "BEATS.md"), "w", encoding="utf-8").write(beats_md)
 
+    for w in warn:
+        print(f"reelkit: ! {w}")
     print(f"reelkit: {len(plan['beats'])} beats, {len(caps)} caption lines, "
           f"{len(tls)} timeline statements, duration {dur}s")
     if visuals:
@@ -477,6 +502,46 @@ window.__timelines["reelkit"] = tl;
     print("reelkit: wrote public/index.html, visuals.json, BEATS.md")
     return 0
 
+
+
+# ------------------------------------------------------------------ cut (opt-in)
+def cut_video(src, dest, keeps, fps):
+    """Trim/reorder BEFORE the pipeline. Deliberately a separate step: the whole
+    design rests on the transcript describing the footage exactly, so we cut
+    first and re-transcribe, rather than remapping every downstream time through
+    an edit list (which is the most bug-prone thing this could contain).
+
+    keeps: [[start, end], ...] in source seconds, applied in the given order."""
+    if not os.path.exists(src):
+        die(f"video not found: {src}")
+    total = probe_duration(src)
+    segs = []
+    for i, k in enumerate(keeps):
+        a, b = float(k[0]), float(k[1])
+        if b > total: b = total
+        if b - a < 0.15:
+            die(f"keep range {i} ({a}-{b}) is shorter than 0.15s")
+        segs.append((a, b))
+    if not segs:
+        die("no keep ranges given")
+
+    parts, maps = [], ""
+    for i, (a, b) in enumerate(segs):
+        parts.append(f"[0:v]trim={a}:{b},setpts=PTS-STARTPTS[v{i}];"
+                     f"[0:a]atrim={a}:{b},asetpts=PTS-STARTPTS[a{i}]")
+        maps += f"[v{i}][a{i}]"
+    fc = ";".join(parts) + f";{maps}concat=n={len(segs)}:v=1:a=1[v][a]"
+    cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+           "-r", str(fps), "-c:v", "libx264", "-crf", "17", "-preset", "medium",
+           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", dest, "-loglevel", "error"]
+    r = sh(cmd)
+    if r.returncode != 0 or not os.path.exists(dest):
+        die(f"ffmpeg failed:\n{r.stderr[-1200:]}")
+    kept = sum(b - a for a, b in segs)
+    print(f"reelkit: cut {total:.2f}s -> {kept:.2f}s ({len(segs)} segment(s)) -> {dest}")
+    print("reelkit: NOW RE-TRANSCRIBE the cut file. Do not reuse the old transcript - "
+          "its timestamps describe the uncut footage.")
+    return 0
 
 
 # ------------------------------------------------------------------ sfx
@@ -830,6 +895,18 @@ def doctor():
           f"{'vendored' if os.path.exists(gs) else ('via HyperFrames skill' if os.path.exists(hf) else 'not found')}")
     r = sh("npx -y hyperframes@latest --version")
     print(f"  {'OK ' if r.returncode == 0 else 'MISS'} hyperframes {r.stdout.strip() or r.stderr.strip()[:60]}")
+    try:
+        import playwright  # noqa: F401
+        print("  OK  playwright  (verify: card geometry)")
+    except Exception:
+        print("  OPT playwright  not installed - `verify` card geometry unavailable")
+    try:
+        import cv2  # noqa: F401
+        print("  OK  opencv      (verify: face detection)")
+    except Exception:
+        print("  OPT opencv      not installed - `verify` face checks skipped (everything else runs)")
+    sfx = find_sfx_dir()
+    print(f"  {'OK ' if sfx else 'OPT'} sfx        {sfx or 'media-use skill not found - sfx cues will be skipped'}")
     print("\nRender/snapshot on a slow or headless box needs:\n"
           "  PRODUCER_PAGE_NAVIGATION_TIMEOUT_MS=90000 PRODUCER_PLAYER_READY_TIMEOUT_MS=90000")
     return 0 if ok else 1
@@ -844,6 +921,12 @@ def main():
     s.add_argument("--width", type=int, default=1080); s.add_argument("--height", type=int, default=1920)
     s.add_argument("--upscale", action="store_true")
     b = sub.add_parser("build"); b.add_argument("--project", required=True)
+    v = sub.add_parser("verify"); v.add_argument("--project", required=True)
+    v.add_argument("--json", action="store_true"); v.add_argument("--fix", action="store_true")
+    ct = sub.add_parser("cut"); ct.add_argument("--video", required=True)
+    ct.add_argument("--out", required=True); ct.add_argument("--fps", type=int, default=30)
+    ct.add_argument("--keep", required=True,
+                    help='ranges in source seconds: "0:44,56:90" (applied in order)')
     d = sub.add_parser("plan"); d.add_argument("--project", required=True)
     d.add_argument("--lang", default="en"); d.add_argument("--max-beats", type=int, default=0)
     sub.add_parser("doctor")
@@ -854,6 +937,12 @@ def main():
         return build(a.project)
     if a.cmd == "plan":
         return draft_plan(a.project, a.lang, a.max_beats)
+    if a.cmd == "verify":
+        import verify as _v
+        return _v.run(a.project, a.json, a.fix)
+    if a.cmd == "cut":
+        keeps = [[float(x) for x in seg.split(":")] for seg in a.keep.split(",")]
+        return cut_video(a.video, a.out, keeps, a.fps)
     return doctor()
 
 

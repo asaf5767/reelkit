@@ -8,7 +8,17 @@ list, which is the most bug-prone thing this design could contain.
 
 Instead: **cut first, then treat the cut file as a fresh source.**
 
-## The recipe
+## The command
+
+```bash
+python3 scripts/reelkit.py cut --video raw.mp4 --out cut.mp4 --keep "0:44,56:90"
+```
+
+Ranges are in source seconds and are concatenated in the order given, so this is
+also how you reorder. Re-encodes rather than stream-copies so cuts land on exact
+frames. Then scaffold and **re-transcribe** `cut.mp4`.
+
+## The recipe (what the command does)
 
 1. Transcribe the raw take and read it. Pick the ranges worth keeping.
 

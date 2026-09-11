@@ -47,6 +47,8 @@ composition. Nothing else is authored by hand.
       "kind": "notification",
       "mode": "top",         // "top" | "stage" | "full"
       "intent": "Hook - a notification claims AI took the job",
+      "layout": { "top": 220 },   // optional: overrides the mode's vertical padding
+                                  // (what `verify --fix` writes)
       "data": { /* kind-specific, see below */ },
       "sfx": [ { "name": "pop", "at": 0.15, "volume": 0.85 } ],   // at = relative to beat start
       "image": {             // optional image slot

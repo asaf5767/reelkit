@@ -42,6 +42,7 @@ python3 $S plan --project videos/myreel --lang he      # optional heuristic draf
 # review plan.draft.json, replace the TODOs, rename to plan.json
 python3 $S build --project videos/myreel
 cd videos/myreel && npx hyperframes@latest check public
+python3 $S verify --project videos/myreel        # card-over-face, captions, off-canvas
 npx hyperframes@latest snapshot public --at "3,12,20,30" --no-end   # look at it
 npx hyperframes@latest render public -o output.mp4 --fps 30
 ```
@@ -62,7 +63,8 @@ skills/reelkit/
   SKILL.md                 the workflow, and the hard rules
   references/              plan schema, visual-beat doctrine, RTL, captions,
                            image slots, audio, trimming, troubleshooting
-  scripts/reelkit.py       scaffold / plan / build / doctor
+  scripts/reelkit.py       scaffold / cut / plan / build / verify / doctor
+  scripts/verify.py        measured card geometry, face detection, collisions
   scripts/cards.py         15 visual-beat kinds + seek-safe animation primitives
   assets/fonts/            Heebo (OFL) + Inter
   assets/brand/            colour and caption presets

@@ -37,7 +37,7 @@ image-slot contract. If HyperFrames is missing, nothing renders.
 ```bash
 npx hyperframes@latest --version          # must succeed
 npx hyperframes@latest skills update talking-head-recut   # once, provides gsap + render deps
-python3 scripts/reelkit.py doctor         # ffmpeg, ffprobe, node, fonts, gsap
+python3 scripts/reelkit.py doctor         # ffmpeg, ffprobe, node, fonts, gsap, verify deps
 ```
 
 On a slow or headless machine every `snapshot`/`render` call needs:
@@ -133,7 +133,7 @@ do nothing: the drawn HTML card is already there and the reel is complete.
 Details, prompt-writing guidance and the transparency rules:
 `references/image-slots.md`.
 
-## 6. Validate, then look at it
+## 6. Validate, verify, then look at it
 
 ```bash
 cd videos/myreel && npx hyperframes@latest check public
@@ -142,7 +142,20 @@ cd videos/myreel && npx hyperframes@latest check public
 Fix every error before rendering. The linter catches real defects — it is the
 reason this skill knows that `<html dir="rtl">` renders a black video.
 
-Then **look at actual frames** — never trust the plan:
+Then run the automated gate — it catches the collisions a human used to catch by
+squinting at frames:
+
+```bash
+python3 scripts/reelkit.py verify --project videos/myreel        # exit 1 on errors
+python3 scripts/reelkit.py verify --project videos/myreel --fix  # nudge fixable cards
+```
+
+It measures each card's real bounding box in a browser, detects the speaker's head
+in the footage, and reports cards over the face, over the caption band, or off
+canvas. Mode-aware: `stage` beats dim the speaker on purpose, so overlap there is
+not a defect. See `references/verify.md`.
+
+Then **look at actual frames** for the things no checker can judge:
 
 ```bash
 npx hyperframes@latest snapshot public --at "3.4,12,20,27,54,63" --timeout 60000 --no-end
@@ -150,12 +163,12 @@ npx hyperframes@latest snapshot public --at "3.4,12,20,27,54,63" --timeout 60000
 
 Read `public/snapshots/contact-sheet.jpg` and check, honestly:
 
-- is text overlapping the speaker's mouth or eyes?
-- is the frame so dark the speaker has disappeared?
-- does any card sit empty for more than ~0.8 s before its content animates in?
 - do RTL lines read as sentences, or as reversed word salad?
-- is any word broken across two lines?
+- is the frame so dark the speaker has disappeared?
 - does every beat depict something, or did one slip back into being a caption?
+
+(Card-over-face, card-over-captions, off-canvas and empty-card timing are now
+checked for you — `verify` and `build` report them.)
 
 Fix, rebuild, re-snapshot. Snapshots cost seconds; a render costs minutes.
 
@@ -173,7 +186,20 @@ ffmpeg -y -i output.mp4 -c:v libx264 -preset medium -crf 23 -profile:v high \
   -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 160k final.mp4
 ```
 
-## 8. Audio
+## 8. Trimming (opt-in)
+
+Footage is untouched by default. When a take needs tightening, cut **before** the
+pipeline and re-transcribe, so the transcript always describes the footage exactly:
+
+```bash
+python3 scripts/reelkit.py cut --video raw.mp4 --out cut.mp4 --keep "0:44,56:90"
+```
+
+Then scaffold and transcribe `cut.mp4` as a fresh source. Never reuse the old
+transcript — its timestamps describe the uncut footage. `references/trimming.md`
+covers what is worth cutting.
+
+## 9. Audio
 
 **Sound effects are supported and tested.** Add cues to any beat:
 
@@ -222,6 +248,7 @@ Full explanations and the RTL specifics: `references/rtl-and-fonts.md` and
 | File | Read it when |
 | --- | --- |
 | `references/plan-schema.md` | authoring `plan.json`; every kind and its `data` |
+| `references/verify.md` | the automated quality gate and how it is calibrated |
 | `scripts/reelkit.py plan` | a heuristic first draft when starting from a blank page |
 | `references/visual-beats.md` | choosing what each beat should show |
 | `references/image-slots.md` | wiring generated images in; writing prompts |
