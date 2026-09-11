@@ -376,7 +376,7 @@ def build(project):
             warn.append(f"beat {cid} renders {round(first_at - st, 2)}s before its first animation - "
                         f"it will sit visibly empty")
 
-        hosts.append(f'<div class="card-host clip" data-card-id="{cid}" data-composition-id="{cid}" '
+        hosts.append(f'<div class="card-host clip" id="card-{cid}" data-card-id="{cid}" data-composition-id="{cid}" '
                      f'data-start="{st:.4f}" data-duration="{en-st:.4f}" data-track-index="2" '
                      f'style="left:0;top:0;width:{W}px;height:{H}px;visibility:hidden;opacity:0;">\n{frag}\n</div>')
         sel = f"'.card-host[data-card-id=\"{cid}\"]'"
@@ -401,7 +401,7 @@ def build(project):
                     f'align-items:center;justify-content:center; }}\n</style>\n'
                     f'<div class="root"><div class="capline" dir="{DIRC}">{ws}</div></div>\n</div>')
             s, e = cp["start"], cp["end"]
-            hosts.append(f'<div class="card-host clip cap-host" data-card-id="{cp["id"]}" '
+            hosts.append(f'<div class="card-host clip cap-host" id="caption-{cp["id"]}" data-card-id="{cp["id"]}" '
                          f'data-composition-id="{cp["id"]}" data-start="{s:.4f}" data-duration="{e-s:.4f}" '
                          f'data-track-index="3" style="left:0;top:{top}px;width:{W}px;height:{hgt}px;'
                          f'visibility:hidden;opacity:0;">\n{frag}\n</div>')
