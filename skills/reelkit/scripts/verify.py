@@ -175,7 +175,8 @@ def run(project, as_json, fix):
                 expr = (fx, fy + fh * 0.30, fw, fh * 0.70)
                 fo = overlap_pct(box, expr)
                 row["faceOverlapPct"] = fo
-                row["_note"] = "stage/full dim the speaker deliberately" if mode != "top" else ""
+                dims = mode == "stage" or (mode == "full" and b.get("takeover"))
+                row["_note"] = f"{mode} dims the speaker deliberately" if dims else ""
                 if mode == "top":          # the speaker is the subject here
                     if fo >= 12:
                         findings.append(("ERROR", cid,

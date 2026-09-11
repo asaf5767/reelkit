@@ -124,9 +124,9 @@ def card_css(cid, mode, br, layout=None):
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
     top = (layout or {}).get("top")
-    # `full` sits at 220, between `top` (140) and `stage` (300): its scrim is
-    # near-opaque, so the card owns the frame - 140 crowds the top edge and
-    # leaves a dead band below, while 300 pushes a frame-owning card too low.
+    # `full` sits at 220, between `top` (140) and `stage` (300): the card is
+    # the focus but the speaker stays visible by default - 140 crowds the top
+    # edge and leaves a dead band below, while 300 pushes a focus card too low.
     pad = (f"{int(top)}px 0 0 0" if top is not None
            else ("300px 0 0 0" if mode == "stage"
                  else ("220px 0 0 0" if mode == "full" else "140px 0 0 0")))
@@ -138,7 +138,9 @@ def card_css(cid, mode, br, layout=None):
  rgba(5,6,10,.30) 26%,rgba(5,6,10,0) 48%,rgba(5,6,10,.10) 74%,rgba(5,6,10,.30) 100%); }}
 {P} .scrim.stage {{ background:linear-gradient(180deg,rgba(5,6,10,.82) 0%,rgba(5,6,10,.74) 46%,
  rgba(5,6,10,.46) 68%,rgba(5,6,10,.34) 100%); }}
-{P} .scrim.full {{ background:rgba(5,6,10,.90); }}
+{P} .scrim.full {{ background:linear-gradient(180deg,rgba(5,6,10,.68) 0%,
+ rgba(5,6,10,.40) 30%,rgba(5,6,10,.14) 52%,rgba(5,6,10,.24) 76%,rgba(5,6,10,.48) 100%); }}
+{P} .scrim.full.takeover {{ background:rgba(5,6,10,.90); }}
 {P} .stack {{ position:relative;width:980px;display:flex;flex-direction:column;gap:20px;
  padding:0 26px;direction:{D};text-align:{START}; }}
 {P} .stack.center {{ align-items:center;text-align:center; }}
@@ -365,7 +367,8 @@ def build(project):
                         + body)
                 g.append(an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-bg'", st + 0.05, 0.5))
 
-        scrim = ('<div class="scrim full"></div>' if mode == "full"
+        takeover = mode == "full" and beat.get("takeover")
+        scrim = ('<div class="scrim full%s"></div>' % (" takeover" if takeover else "") if mode == "full"
                  else '<div class="scrim stage"></div>' if mode == "stage"
                  else '<div class="scrim"></div>')
         frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n'

@@ -73,7 +73,11 @@ composition. Nothing else is authored by hand.
 | --- | --- | --- | --- |
 | `top` | light gradient | y ≈ 140 | compact beats while the speaker carries the moment |
 | `stage` | heavy gradient | y ≈ 300 | the visual is the point; the speaker recedes |
-| `full` | near-opaque | y ≈ 220 | title cards, outros, anything that owns the frame |
+| `full` | moderate gradient | y ≈ 220 | title cards, outros, anything that owns the frame |
+
+The speaker stays visible in every mode by default. For an intentional
+full-frame takeover - the speaker should vanish behind the card - set
+`"takeover": true` on a `full` beat; its scrim turns near-opaque.
 
 Beats must not overlap in time. `end` is clamped to the media duration.
 

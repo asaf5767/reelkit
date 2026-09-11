@@ -163,8 +163,8 @@ python3 scripts/reelkit.py verify --project videos/myreel --fix  # nudge fixable
 
 It measures each card's real bounding box in a browser, detects the speaker's head
 in the footage, and reports cards over the face, over the caption band, or off
-canvas. Mode-aware: `stage` beats dim the speaker on purpose, so overlap there is
-not a defect. See `references/verify.md`.
+canvas. Mode-aware: `stage` beats (and `full` beats with `takeover: true`) dim the
+speaker on purpose, so overlap there is not a defect. See `references/verify.md`.
 
 Then **look at actual frames** for the things no checker can judge:
 
