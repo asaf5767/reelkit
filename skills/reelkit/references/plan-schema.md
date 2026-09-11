@@ -50,8 +50,11 @@ composition. Nothing else is authored by hand.
       "kind": "notification",
       "mode": "top",         // "top" | "stage" | "full"
       "intent": "Hook - a notification claims AI took the job",
-      "layout": { "top": 220 },   // optional: overrides the mode's vertical padding
-                                  // (what `verify --fix` writes)
+      "plate": true,         // optional: force the local plate on or off
+      "layout": {            // optional, and what `verify --fix` writes
+        "top": 120,          //   vertical padding, overriding the mode's default
+        "scale": 0.74        //   shrink the card to fit above the speaker's head
+      },
       "data": { /* kind-specific, see below */ },
       "sfx": [ { "name": "pop", "at": 0.15, "volume": 0.85 } ],   // at = relative to beat start
       "image": {             // optional image slot
@@ -69,18 +72,41 @@ composition. Nothing else is authored by hand.
 
 ## mode
 
-| mode | scrim | content sits at | use for |
+| mode | over the footage | content sits at | use for |
 | --- | --- | --- | --- |
-| `top` | light gradient | y ≈ 140 | compact beats while the speaker carries the moment |
-| `stage` | heavy gradient | y ≈ 300 | the visual is the point; the speaker recedes |
-| `full` | moderate gradient | y ≈ 220 | title cards, outros, anything that owns the frame |
-| `split` | none | inside the canvas | a light panel over the top of the frame, speaker undimmed below |
+| `top` | nothing | y ≈ 120 | compact beats while the speaker carries the moment |
+| `stage` | nothing | y ≈ 150 | the visual is the point and wants more room |
+| `split` | nothing | inside the canvas | an opaque light panel across the top, speaker undimmed below |
+| `full` | **replaces it** | centred | B-roll: the frame is the content, the speaker is gone |
 
-The speaker stays visible in every mode by default. For an intentional
-full-frame takeover - the speaker should vanish behind the card - set
-`"takeover": true` on a `full` beat; its scrim turns near-opaque.
+**Nothing dims the speaker. Ever.** There is no scrim, no gradient, no tint over
+the frame in any mode. Dimming the frame to lift a card also dims the person
+talking, and he is the subject — "the visuals make the rest of the screen darker
+and it affects how I look" is what the old global scrims did.
+
+Where a card needs separation from the footage it gets a **plate**: a local dark
+surface the size of the card and nothing more. It is on by default for kinds
+that are bare type or line art on live footage, and off for kinds that already
+draw their own surface (`notification`, `chat`, `code`, `diff`, `checklist`,
+`chips`, `image`). Force it either way with `"plate": true | false` on the beat.
+
+`takeover` is gone. `full` is always a takeover now, because that is the only
+honest version of one: an opaque ground, not a card floating over a half-visible
+speaker. A beat that still carries the key gets a build warning.
 
 Beats must not overlap in time. `end` is clamped to the media duration.
+
+### `full` — B-roll
+
+The frame is replaced rather than covered. If the beat has an image and the file
+is present, that image fills the frame edge to edge (`object-fit: cover`, with a
+slow push you can set via `image.zoom`) and the beat's `caption` sits near the
+bottom. Otherwise the brand ground fills it and the card centres on top.
+
+This is the answer when a card cannot fit above the speaker's head — see below.
+It is also where a generated image belongs when the image *is* the point: a
+picture that owns the frame for four seconds lands, where the same picture
+shrunk into a corner of a panel does not.
 
 ### `split`
 
@@ -120,16 +146,36 @@ structural beats of a reel - the point being made, not the decoration around it.
 - `kind: "canvas"` is the only kind designed for the light panel. Every other
   kind assumes a dark surface and will render low-contrast inside it.
 
-The default 56% is measured from a reference cut, and it is a ceiling, not a
-guarantee: on footage where the speaker sits high in frame it would clip the eye
-line. `build` therefore detects the head in the footage and caps every split
-beat's canvas above the eye line (persisting the resolved pixels into
-`layout.canvas`, so build and verify see the same panel). When the speaker is so
-high that even the minimum 320px panel would cross the eyes, build warns that the
-framing is too tight for split mode and `verify` fails the beat - pick another
-mode for it. When no head is detected (cv2 missing, or no face in frame), the
-requested height is kept and the note is printed, so do not hand-tune the
-default: run the gate.
+The default is 44% of frame height, and it is a ceiling rather than a guarantee.
+`build` detects the head and caps every split beat's canvas **above the whole
+head** — hair and forehead, not the eye line — persisting the resolved pixels
+into `layout.canvas` so build and verify see the same panel. When the speaker
+sits so high that even the minimum 320px panel would touch him, build warns that
+the framing is too tight for split mode and `verify` fails the beat: use B-roll
+for it. When no head is detected (cv2 missing, or no face in frame) the requested
+height is kept and a note is printed. Do not hand-tune the default — run the gate.
+
+### What "clear of the head" means
+
+The thing protected is the **whole head**, not the detected face box.
+
+OpenCV's frontal-face box starts at mid-forehead. Measured across a 90-second
+talking-head cut at seven timestamps, the hair top sat between 0.097 and 0.145 of
+the box height *above* the box — so a rule that protects the box protects the
+eyes and mouth and leaves the forehead and hairline exposed. That is how a beat
+could report 0% face overlap and still look like the graphic was sitting on the
+speaker's head.
+
+`head_rect()` expands the detected box by 28% of its height upward for hair and
+forehead (roughly double the measured worst case, so it still holds for taller
+hair, a cap, or a tilted head), 8% downward for the jaw, and 6% each side for
+ears. `head_clear_y()` subtracts a further 72px of breathing room, and that is
+the line a card or panel must end above.
+
+A card that does not fit above it has exactly one mechanical remedy —
+`layout.scale`, which `verify --fix` writes — and below 0.62 the card stops being
+readable at phone size. At that point the beat needs an editorial decision rather
+than a layout one: B-roll, or a kind that says the same thing in less space.
 
 #### Images on the panel
 

@@ -165,37 +165,73 @@ def lang_direction(lang):
 
 def split_canvas_h(layout, H):
     """Height of a split beat's upper canvas, in pixels. Accepts a fraction
-    (<=1) or explicit pixels; defaults to 56% of frame height, measured from the
-    reference cut. Shared by the builder and verify so the two cannot disagree
-    about where the canvas sits."""
+    (<=1) or explicit pixels. Shared by the builder and verify so the two cannot
+    disagree about where the canvas sits.
+
+    The default is 44% of frame height, down from 56%: a panel should ask for
+    the space it needs rather than half the screen by default, and on tight
+    framing the head-clearance cap was cutting it down anyway."""
     v = (layout or {}).get("canvas")
     if v is None:
-        return int(round(H * 0.56))
+        return int(round(H * 0.44))
     v = float(v)
     px = int(round(H * v)) if v <= 1.0 else int(round(v))
     return max(160, min(H - 200, px))       # always leave room for the speaker
 
 
-# ---------------------------------------------------------- face-aware sizing
-EYE_LINE = 0.30      # eyes sit ~30% down a detected head box
-CANVAS_MARGIN = 32   # the canvas stops this many px above the eye line
-CANVAS_MIN = 320     # below this a split canvas is too shallow to be useful
+# ------------------------------------------------------------ head clearance
+# What gets protected is the WHOLE HEAD, not the detected face box.
+#
+# Haar's frontalface box starts at mid-forehead, not at the hair. Measured
+# across a 90 s talking-head cut at seven timestamps, the hair top sat between
+# 0.097 and 0.145 of the box height ABOVE the box, median 0.122. So a rule that
+# protects the box protects the eyes and mouth and leaves the forehead and
+# hairline exposed - which is exactly what "the visuals overlap my face, should
+# try to not hide my forehead" was about, and why a beat could measure 0%
+# overlap and still look wrong.
+#
+# HAIR_RATIO is set to roughly double the measured worst case so it still holds
+# for taller hair, a cap, or a tilted head on footage nobody has seen yet.
+EYE_LINE = 0.30       # kept: some callers still reason about the eye line
+HAIR_RATIO = 0.28     # hair/forehead above the detected box, as a fraction of it
+JAW_RATIO = 0.08      # jaw and beard below it
+HEAD_PAD_X = 0.06     # ears and hair sit outside the box horizontally
+HEAD_MARGIN = 72      # breathing room above the hair - not a hairline kiss
+CANVAS_MARGIN = HEAD_MARGIN     # back-compat alias; the canvas uses the same rule
+CANVAS_MIN = 320      # below this a split canvas is too shallow to be useful
+
+
+def head_rect(face):
+    """The whole head - hair, forehead, ears, jaw - as (x, y, w, h) in canvas
+    pixels, or None when no head was detected. This is the thing visuals must
+    not touch; the detected face box is only its middle."""
+    if not face:
+        return None
+    x, y, w, h = face
+    top = y - h * HAIR_RATIO
+    return (x - w * HEAD_PAD_X, top, w * (1 + 2 * HEAD_PAD_X),
+            (y + h * (1 + JAW_RATIO)) - top)
+
+
+def head_clear_y(face):
+    """Lowest y a card or panel may reach and still leave the head alone,
+    margin included. None when no head was detected - callers treat that as
+    "no information", never as "nothing to avoid"."""
+    r = head_rect(face)
+    return None if r is None else int(r[1]) - HEAD_MARGIN
 
 
 def face_safe_canvas_h(face, H):
-    """Largest split-canvas height that keeps the speaker's eyes and mouth
-    clear, or None when no head was detected (caller keeps the requested
-    height)."""
-    if not face:
-        return None
-    return int(face[1] + face[3] * EYE_LINE) - CANVAS_MARGIN
+    """Largest split-canvas height that clears the whole head. None when no
+    head was detected (caller keeps the requested height)."""
+    return head_clear_y(face)
 
 
 def split_canvas_h_face(layout, H, face):
-    """The requested split canvas, capped so the panel never crosses the
-    detected eyes. Returns (px, cleared): cleared=False means even CANVAS_MIN
-    cannot clear the head - the framing is too tight for split mode and the
-    caller should say so instead of pretending the canvas is safe."""
+    """The requested split canvas, capped so the panel never reaches the head.
+    Returns (px, cleared): cleared=False means even CANVAS_MIN cannot clear the
+    head - the framing is too tight for split mode and the caller should say so
+    instead of pretending the canvas is safe."""
     req = split_canvas_h(layout, H)
     safe = face_safe_canvas_h(face, H)
     if safe is None:
@@ -203,6 +239,22 @@ def split_canvas_h_face(layout, H, face):
     if safe < CANVAS_MIN:
         return CANVAS_MIN, False
     return min(req, safe), True
+
+
+# ------------------------------------------------------------- local plates
+# The speaker is never dimmed, so a card that is bare type on live footage needs
+# its own separation. Kinds below already draw an opaque surface of their own -
+# a notification banner, a phone, an editor window, pill rows - and a plate
+# behind those stacks two panels and reads as a mistake.
+SELF_SURFACED = {"notification", "chat", "code", "diff", "checklist",
+                 "chips", "image", "canvas"}
+
+
+def wants_plate(kind, beat):
+    """Whether this beat gets a plate behind its card. `beat.plate` overrides."""
+    if beat.get("plate") is not None:
+        return bool(beat["plate"])
+    return kind not in SELF_SURFACED
 
 
 # ------------------------------------------------------- split image payloads

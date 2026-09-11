@@ -23,11 +23,16 @@ import argparse, json, os, statistics, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
-                   detect_faces, EYE_LINE, CANVAS_MARGIN, CANVAS_MIN,
-                   CANVAS_IMG_MIN)  # noqa: E402
+                   detect_faces, CANVAS_MIN, CANVAS_IMG_MIN,
+                   head_rect, head_clear_y)  # noqa: E402
 from reelkit import container_problems  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Below this a shrunk card stops being readable at phone size, and the beat
+# needs an editorial decision (B-roll, or a kind that says it in less space)
+# rather than another few percent off.
+SCALE_FLOOR = 0.62
 
 try:
     import cv2
@@ -83,7 +88,11 @@ def measure_cards(project, plan, W, H):
                   if (!root) return null;
                   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,n=0;
                   root.querySelectorAll('*').forEach(el => {
-                    if (el.classList.contains('scrim')) return;
+                    // .broll is the B-roll ground: it is the frame by
+                    // definition, so counting it makes every full beat
+                    // look like a card that overflows and covers the
+                    // captions.
+                    if (el.closest && el.closest('.broll')) return;
                     const r = el.getBoundingClientRect();
                     if (r.width < 2 || r.height < 2) return;
                     const cs = getComputedStyle(el);
@@ -151,22 +160,24 @@ def run(project, as_json, fix):
             ch = split_canvas_h(b.get("layout"), H)
             row["canvas"] = {"x": 0, "y": 0, "w": W, "h": ch}
             cbox = {"x": 0.0, "y": 0.0, "w": float(W), "h": float(ch)}
-            if face:
-                fx, fy, fw, fh = face
-                # Band-relative, not canvas-relative: "covers X% of the
-                # eyes/mouth" must mean what it says. Measured against the big
-                # canvas rect, a panel swallowing the whole face reads ~5%.
-                band = (fx, fy + fh * EYE_LINE, fw, fh * (1 - EYE_LINE))
-                so = overlap_pct({"x": band[0], "y": band[1], "w": band[2], "h": band[3]},
+            hr = head_rect(face)
+            if hr:
+                # The WHOLE head, hair and forehead included - not the eye/mouth
+                # band. The band test let a panel sit on the forehead and still
+                # report 0%, which is how "the visuals overlap my face" survived
+                # a clean gate.
+                so = overlap_pct({"x": hr[0], "y": hr[1], "w": hr[2], "h": hr[3]},
                                  (0, 0, W, ch))
-                row["canvasFaceOverlapPct"] = so
-                if so >= 12:
+                row["canvasHeadOverlapPct"] = so
+                row["headTop"] = int(hr[1])
+                if so >= 1:
                     findings.append(("ERROR", cid,
-                                     f"split canvas covers {so}% of the speaker's eyes/mouth - "
-                                     f"lower layout.canvas (currently {ch}px of {H})"))
-                elif so >= 4:
+                                     f"split canvas covers {so}% of the speaker's head - it "
+                                     f"reaches y={ch} and the head starts at y={int(hr[1])}; "
+                                     f"cap layout.canvas at {head_clear_y(face)}px or use B-roll"))
+                elif so > 0:
                     findings.append(("WARN", cid,
-                                     f"split canvas clips {so}% of the speaker's eyes/mouth"))
+                                     f"split canvas grazes the speaker's hairline ({so}%)"))
             if cap_on:
                 cc = overlap_pct(cbox, cap_box)
                 row["canvasCaptionOverlapPct"] = cc
@@ -202,25 +213,27 @@ def run(project, as_json, fix):
         if box:
             if box["x"] < -2 or box["y"] < -2 or box["x"] + box["w"] > W + 2 or box["y"] + box["h"] > H + 2:
                 findings.append(("ERROR", cid, "card extends outside the canvas - content will be clipped"))
-            if face:
-                # Only the lower ~70% matters: cards arrive from above, and
-                # clipping the top of the hair is harmless. Eyes and mouth are not.
-                fx, fy, fw, fh = face
-                expr = (fx, fy + fh * EYE_LINE, fw, fh * (1 - EYE_LINE))
-                fo = overlap_pct(box, expr)
-                row["faceOverlapPct"] = fo
-                dims = mode == "stage" or (mode == "full" and b.get("takeover"))
-                row["_note"] = f"{mode} dims the speaker deliberately" if dims else ""
-                if mode == "top":          # the speaker is the subject here
-                    if fo >= 12:
-                        findings.append(("ERROR", cid,
-                                         f"card covers {fo}% of the speaker's eyes/mouth in 'top' mode"))
-                    elif fo >= 4:
-                        findings.append(("WARN", cid, f"card clips {fo}% of the speaker's eyes/mouth"))
-                elif fo >= 55:             # even a dimmed speaker should not vanish
+            hr = head_rect(face) if face else None
+            if hr and mode != "full":
+                # One rule for every mode that plays over live footage: the
+                # whole head stays clear. No mode dims the speaker any more, so
+                # there is no longer a mode in which covering him is "intended"
+                # - `full` is B-roll and replaces the frame outright, which is
+                # why it is exempt rather than tolerant.
+                fo = overlap_pct({"x": hr[0], "y": hr[1], "w": hr[2], "h": hr[3]},
+                                 (box["x"], box["y"], box["w"], box["h"]))
+                row["headOverlapPct"] = fo
+                row["headTop"] = int(hr[1])
+                clear = head_clear_y(face)
+                if fo >= 1:
+                    findings.append(("ERROR", cid,
+                                     f"card covers {fo}% of the speaker's head - it reaches "
+                                     f"y={box['y'] + box['h']:.0f} and the head starts at "
+                                     f"y={int(hr[1])}; it needs to end above y={clear}, or the "
+                                     f"beat wants B-roll (mode 'full')"))
+                elif fo > 0:
                     findings.append(("WARN", cid,
-                                     f"card covers {fo}% of the speaker in '{mode}' mode - "
-                                     f"intended, but check the speaker is still readable"))
+                                     f"card grazes the speaker's hairline ({fo}%)"))
             if cap_on:
                 co = overlap_pct(box, cap_box)
                 row["captionOverlapPct"] = co
@@ -288,7 +301,8 @@ def run(project, as_json, fix):
             b = f"box({r['box']['x']:.0f},{r['box']['y']:.0f} {r['box']['w']:.0f}x{r['box']['h']:.0f})" \
                 if r["box"] else "box(none)"
             print(f"  {r['id']:5s} {r['kind']:12s} {r['mode']:6s} {b}"
-                  f" faceOv={r.get('faceOverlapPct','-')}% capOv={r.get('captionOverlapPct','-')}%")
+                  f" headOv={r.get('headOverlapPct', r.get('canvasHeadOverlapPct', '-'))}%"
+                  f" capOv={r.get('captionOverlapPct', r.get('canvasCaptionOverlapPct', '-'))}%")
         print()
         for lvl, cid, msg in findings:
             print(f"  {lvl:5s} {cid:9s} {msg}")
@@ -304,7 +318,8 @@ def apply_fixes(project, plan, boxes, faces, findings):
     # split: shrink the canvas until it clears the eyes. Mechanical - the canvas
     # top edge is fixed, so only its height is in question.
     split_bad = {cid for lvl, cid, msg in findings
-                 if lvl in ("ERROR", "WARN") and "split canvas" in msg and "eyes/mouth" in msg}
+                 if lvl in ("ERROR", "WARN") and "split canvas" in msg
+                 and ("speaker's head" in msg or "hairline" in msg)}
     for b in plan["beats"]:
         if b["id"] not in split_bad or b.get("mode") != "split":
             continue
@@ -314,18 +329,37 @@ def apply_fixes(project, plan, boxes, faces, findings):
             b.setdefault("layout", {})["canvas"] = safe
             changed += 1
 
-    bad = {cid for lvl, cid, msg in findings if lvl == "ERROR" and "eyes/mouth" in msg
-           and "split canvas" not in msg}
+    bad = {cid for lvl, cid, msg in findings if lvl == "ERROR"
+           and "speaker's head" in msg and "split canvas" not in msg}
     for b in plan["beats"]:
         if b["id"] not in bad:
             continue
         box = boxes.get(b["id"]); face = faces.get(b["id"])
         if not box or not face:
             continue
-        headroom = face[1] - 40                       # space above the head
-        if box["h"] <= headroom - 60:                 # it fits above the face
-            b.setdefault("layout", {})["top"] = max(40, int(headroom - box["h"]))
+        clear = head_clear_y(face)                    # above hair, not forehead
+        if clear is None:
+            continue
+        if box["h"] <= clear - 60:
+            # It fits; it was just sitting too low. Slide it up.
+            b.setdefault("layout", {})["top"] = max(40, int(clear - box["h"]))
             changed += 1
+            continue
+        # It does not fit at this size. The one mechanical remedy left is to
+        # take less room - which is also the house style now. box is measured
+        # WITH any scale already applied, so compound rather than replace.
+        cur = float((b.get("layout") or {}).get("scale", 1) or 1)
+        avail = clear - box["y"]
+        if avail <= 0 or box["h"] <= 0:
+            continue
+        new = round(cur * (avail / box["h"]), 3)
+        if new >= SCALE_FLOOR:
+            b.setdefault("layout", {})["scale"] = new
+            changed += 1
+        # Below the floor the card would be too small to read. That is not a
+        # layout problem any more, it is an editorial one: the beat wants
+        # B-roll, or a kind that says the same thing in less space. Leave the
+        # ERROR standing and say so rather than shrinking it into illegibility.
     if changed:
         json.dump(plan, open(os.path.join(project, "plan.json"), "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)

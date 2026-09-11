@@ -17,8 +17,8 @@ import argparse, json, os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    lang_direction as cards_lang_direction, split_canvas_h,
-                   split_canvas_h_face, detect_faces, CANVAS_MARGIN,
-                   canvas_image_box)
+                   split_canvas_h_face, detect_faces,
+                   canvas_image_box, wants_plate, head_rect, head_clear_y)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -128,14 +128,25 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
     top = (layout or {}).get("top")
-    # `full` sits at 220, between `top` (140) and `stage` (300): the card is
-    # the focus but the speaker stays visible by default - 140 crowds the top
-    # edge and leaves a dead band below, while 300 pushes a focus card too low.
+    # `stage` used to sit at 300 because it dimmed the frame: the card was meant
+    # to be low, inside the darkest part of the gradient, with the speaker
+    # receding behind it. There is no gradient any more, so 300 just pushes the
+    # card down onto the speaker's head. Every mode that plays over live footage
+    # now hugs the top edge, which is the only place a card can live without
+    # touching him; the modes differ in how much room the card takes, not in how
+    # far down it starts. `full` is B-roll and owns the frame, so it centres.
     pad = (f"{int(top)}px 0 0 0" if top is not None
-           else ("300px 0 0 0" if mode == "stage"
-                 else ("220px 0 0 0" if mode == "full" else "140px 0 0 0")))
+           else ("150px 0 0 0" if mode == "stage"
+                 else ("0px 0 0 0" if mode == "full" else "120px 0 0 0")))
     if mode == "split":
         pad = "0"      # the canvas owns the upper band and carries its own surface
+    # A card that cannot fit above the head has one mechanical remedy short of
+    # changing the beat's mode: take less room. `layout.scale` is what
+    # `verify --fix` writes, and it scales from the top edge so shrinking never
+    # moves the card back down onto him.
+    scale = float((layout or {}).get("scale", 1) or 1)
+    scale_css = ("\n%s .root > *:not(.broll) { transform:scale(%s);transform-origin:top center; }"
+                 % (P, round(scale, 3))) if scale != 1 else ""
     # Emitted only for split beats: every other card would carry 15 lines of dead
     # rules, and existing projects must still rebuild byte-identically.
     canvas_css = f"""
@@ -167,7 +178,13 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
  /* the counter pill is absolutely positioned in the panel's bottom-start
     corner; reserve its strip or an image caption lands on top of it */
  padding-bottom:56px; }}
-{P} .cpane > .cblock {{ flex:0 1 auto;min-height:0;justify-content:center; }}
+/* flex:0 0 auto, NOT 0 1 auto. Letting the text block shrink below its own
+   content means the headline overflows into the media area and the image paints
+   over it - which is what a shorter default canvas immediately produced. The
+   text takes what it needs; the picture takes what is left, and the squeeze
+   check fails the beat when that is not enough. */
+{P} .cpane > .cblock {{ {'flex:1 1 auto;min-width:0' if fit == 'tall' else 'flex:0 0 auto'};
+ justify-content:center; }}
 {P} .cmedia {{ display:flex;flex-direction:column;gap:14px;
  flex:1 1 auto;min-height:0;min-width:0;justify-content:center; }}
 {P} .cimgframe {{ flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;
@@ -183,33 +200,52 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .cimgcap {{ flex:0 0 auto;font-size:30px;font-weight:700;text-align:{START};
  direction:{D};color:{br.get('canvasMuted', '#858A93')}; }}""" if cimg else ""
     return f"""
-{P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
+{P} .root {{ width:100%;height:100%;position:relative;display:flex;
+ align-items:{'center' if mode == 'full' else 'flex-start'};
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
  color:{br['text']};background:transparent; }}
-{P} .scrim {{ position:absolute;inset:0;background:linear-gradient(180deg,rgba(5,6,10,.58) 0%,
- rgba(5,6,10,.30) 26%,rgba(5,6,10,0) 48%,rgba(5,6,10,.10) 74%,rgba(5,6,10,.30) 100%); }}
-{P} .scrim.stage {{ background:linear-gradient(180deg,rgba(5,6,10,.82) 0%,rgba(5,6,10,.74) 46%,
- rgba(5,6,10,.46) 68%,rgba(5,6,10,.34) 100%); }}
-{P} .scrim.full {{ background:linear-gradient(180deg,rgba(5,6,10,.68) 0%,
- rgba(5,6,10,.40) 30%,rgba(5,6,10,.14) 52%,rgba(5,6,10,.24) 76%,rgba(5,6,10,.48) 100%); }}
-{P} .scrim.full.takeover {{ background:rgba(5,6,10,.90); }}
-{P} .stack {{ position:relative;width:980px;display:flex;flex-direction:column;gap:20px;
- padding:0 26px;direction:{D};text-align:{START}; }}
+/* No global scrim anywhere. Dimming the frame to lift a card also dims the
+   speaker, and the speaker is the subject - "the visuals make the rest of the
+   screen darker and it affects how I look". Separation, where a card needs it,
+   comes from .plate: a local surface the size of the card and nothing more. */
+{P} .broll {{ position:absolute;inset:0;background:{br['bg']};overflow:hidden; }}
+{P} .broll img {{ width:100%;height:100%;object-fit:cover;display:block; }}
+{P} .brollcap {{ position:absolute;left:0;right:0;bottom:460px;padding:0 90px;
+ font-size:46px;font-weight:800;line-height:1.25;text-align:center;direction:{D};
+ text-shadow:0 6px 28px rgba(0,0,0,.85); }}
+/* Deliberately NO backdrop-filter. A blurred plate looks better in a still and
+   is a render hazard: HyperFrames lints heavy-overlay elements (filter:blur,
+   radial-gradient, clip-path) because past ~40 of them the capture layer
+   returns solid black for the first half of the render. Fourteen plates took
+   this composition from 0 to 105 heavy elements in one commit. A flat
+   translucent fill plus a shadow reads as the same object and cannot do that. */
+/* Near-opaque on purpose. At 66% over a light wall the plate came out a washed
+   mid-grey that reads as a rendering artefact rather than a card. "Subtle"
+   here means small in EXTENT - it covers the card and nothing else - not
+   see-through. */
+{P} .plate {{ position:relative;border-radius:44px;padding:32px 36px;
+ background:rgba(9,11,17,.90);
+ border:1px solid rgba(255,255,255,.10);
+ box-shadow:0 24px 64px rgba(0,0,0,.42); }}
+/* Card footprints are deliberately smaller than the frame: a visual earns the
+   space it takes, and the default should leave the speaker room. */
+{P} .stack {{ position:relative;width:820px;display:flex;flex-direction:column;gap:18px;
+ padding:0 18px;direction:{D};text-align:{START}; }}
 {P} .stack.center {{ align-items:center;text-align:center; }}
-{P} .blk {{ position:relative;width:960px;padding:0 24px;direction:{D};text-align:{START}; }}
+{P} .blk {{ position:relative;width:820px;padding:0 18px;direction:{D};text-align:{START}; }}
 {P} .blk.center {{ display:flex;flex-direction:column;align-items:center;text-align:center; }}
-{P} .stagewrap {{ position:relative;width:1000px;padding:0 20px;display:flex;flex-direction:column;
- align-items:center;gap:26px; }}
-{P} .row2 {{ position:relative;width:990px;padding:0 24px;display:flex;align-items:center;
- gap:38px;direction:{D}; }}
+{P} .stagewrap {{ position:relative;width:860px;padding:0 16px;display:flex;flex-direction:column;
+ align-items:center;gap:22px; }}
+{P} .row2 {{ position:relative;width:860px;padding:0 18px;display:flex;align-items:center;
+ gap:30px;direction:{D}; }}
 {P} .ico {{ width:100%;height:100%;display:block; }}
 {P} .char {{ display:inline-block; }}
 {P} .wd {{ display:inline-block;white-space:nowrap; }}
-{P} .hero {{ font-size:172px;font-weight:900;line-height:1.0;letter-spacing:-.03em;
+{P} .hero {{ font-size:136px;font-weight:900;line-height:1.0;letter-spacing:-.03em;
  text-shadow:0 10px 48px rgba(0,0,0,.6); }}
-{P} .hero.sm {{ font-size:132px; }}
-{P} .heroicon {{ width:150px;height:150px;margin-bottom:6px; }}
-{P} .btitle {{ font-size:92px;font-weight:900;line-height:1.06;text-shadow:0 8px 34px rgba(0,0,0,.7); }}
+{P} .hero.sm {{ font-size:108px; }}
+{P} .heroicon {{ width:118px;height:118px;margin-bottom:6px; }}
+{P} .btitle {{ font-size:76px;font-weight:900;line-height:1.06;text-shadow:0 8px 34px rgba(0,0,0,.7); }}
 {P} .rule {{ height:8px;width:0;background:{A[0]};border-radius:6px; }}
 {P} .rule.big {{ height:10px;margin:26px 0 22px; }}
 {P} .note {{ font-size:38px;font-weight:600;opacity:.80; }}
@@ -221,7 +257,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .nico {{ width:56px;height:56px;flex:0 0 auto; }}
 {P} .napp {{ font-size:26px;font-weight:700;opacity:.6; }}
 {P} .nbody {{ font-size:46px;font-weight:900;line-height:1.15;margin-top:4px; }}
-{P} .phone {{ width:640px;background:#0c1018;border:3px solid #2a3145;border-radius:38px;
+{P} .phone {{ width:560px;background:#0c1018;border:3px solid #2a3145;border-radius:38px;
  overflow:hidden;box-shadow:0 26px 70px rgba(0,0,0,.65); }}
 {P} .phbar {{ display:flex;gap:10px;padding:18px 22px;background:rgba(255,255,255,.05); }}
 {P} .phbar i {{ width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.25); }}
@@ -231,7 +267,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .bub.r {{ align-self:flex-end;background:{A[0]};color:#10121a;border-bottom-right-radius:8px; }}
 {P} .typing {{ display:flex;flex-direction:row;gap:10px;max-width:none;padding:20px 24px; }}
 {P} .dot {{ width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.6);display:block; }}
-{P} .win {{ width:940px;background:#0b0f18;border:2px solid #232b3d;border-radius:24px;
+{P} .win {{ width:820px;background:#0b0f18;border:2px solid #232b3d;border-radius:24px;
  overflow:hidden;box-shadow:0 26px 70px rgba(0,0,0,.6); }}
 {P} .winbar {{ display:flex;align-items:center;gap:11px;padding:18px 22px;background:#141a26; }}
 {P} .winbar i {{ width:15px;height:15px;border-radius:50%; }}
@@ -299,9 +335,9 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .fnm b {{ font:900 38px '{br['latinFont']}',sans-serif; }}
 {P} .fnm span {{ font-size:28px;opacity:.66;font-weight:700; }}
 {P} .fbtn {{ color:#10121a;font-size:38px;font-weight:900;padding:16px 40px;border-radius:999px; }}
-{P} .doodle {{ width:720px;max-width:100%; }}
+{P} .doodle {{ width:640px;max-width:100%; }}
 {P} .doodle svg {{ width:100%;height:auto;display:block;overflow:visible; }}
-{P} .imgframe {{ width:940px;border-radius:32px;overflow:hidden;position:relative;
+{P} .imgframe {{ width:820px;border-radius:32px;overflow:hidden;position:relative;
  box-shadow:0 30px 80px rgba(0,0,0,.7); }}
 {P} .imgframe.soft {{ border:2px solid rgba(255,255,255,.14); }}
 {P} .imgframe.bare {{ border:0;box-shadow:none;background:transparent; }}
@@ -310,8 +346,9 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
  text-shadow:0 4px 20px rgba(0,0,0,.8); }}
 {P} .imgbehind {{ position:absolute;inset:0;z-index:0;opacity:.55; }}
 {P} .imgbehind img {{ width:100%;height:100%;object-fit:cover;display:block; }}{canvas_css}
-{P} .missing {{ width:900px;border:3px dashed {A[4]};border-radius:28px;padding:40px;
+{P} .missing {{ width:800px;border:3px dashed {A[4]};border-radius:28px;padding:40px;
  background:rgba(20,10,14,.75);color:#ffd7dd;font-size:34px;font-weight:800;line-height:1.35;direction:{D}; }}
+{scale_css}
 """.strip()
 
 
@@ -387,15 +424,17 @@ def build(project):
             for b in splits:
                 px, cleared = split_canvas_h_face(b.get("layout"), H, faces.get(b["id"]))
                 cur = split_canvas_h(b.get("layout"), H)
+                hr = head_rect(faces.get(b["id"]))
                 if not cleared:
-                    warn.append(f"beat {b['id']}: the speaker's eyes sit around y="
-                                f"{px + CANVAS_MARGIN}px - even the minimum split canvas "
-                                f"would cross them; this framing is too tight for split mode")
+                    warn.append(f"beat {b['id']}: the speaker's head starts at y="
+                                f"{int(hr[1]) if hr else '?'}px - even the minimum split "
+                                f"canvas would sit on it; this framing is too tight for "
+                                f"split mode, use B-roll (mode 'full') for this beat")
                 elif px != cur:
                     b.setdefault("layout", {})["canvas"] = px
                     changed = True
                     print(f"reelkit: split {b['id']} canvas {cur}px -> {px}px "
-                          f"(capped above the speaker's eyes)")
+                          f"(capped clear of the speaker's head at y={int(hr[1]) if hr else '?'})")
             if changed:
                 json.dump(plan, open(plan_path, "w", encoding="utf-8"),
                           ensure_ascii=False, indent=2)
@@ -464,7 +503,19 @@ def build(project):
             if not has_img:
                 missing.append(cid)
 
-        if has_img and img.get("mode", "replace") == "replace":
+        # B-roll: in `full` mode a present image IS the frame, edge to edge, so
+        # it must not also be drawn as a framed card floating on top of itself.
+        broll_img = mode == "full" and has_img
+        if broll_img:
+            cap = img.get("caption") or beat.get("data", {}).get("caption")
+            if kind == "image":
+                body = (f'<div id="{cid}-bcap" class="brollcap">{esc(cap)}</div>'
+                        if cap else "")
+                g = ([an.slide(f"'.card[data-card-id=\"{cid}\"] #{cid}-bcap'",
+                               st + 0.30, 0.40, dy=24)] if cap else [])
+            else:
+                body, g = KINDS[kind](cid, beat.get("data", {}), br, an, st, en)
+        elif has_img and img.get("mode", "replace") == "replace":
             body, g = KINDS["image"](cid, {
                 "caption": img.get("caption") or beat.get("data", {}).get("caption"),
                 "frame": "bare" if img.get("alpha") else img.get("frame", "soft"),
@@ -483,11 +534,14 @@ def build(project):
                         + body)
                 g.append(an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-bg'", st + 0.05, 0.5))
 
-        takeover = mode == "full" and beat.get("takeover")
+        if beat.get("takeover") is not None:
+            warn.append(f"beat {cid}: `takeover` no longer does anything - `full` is "
+                        f"always a B-roll takeover now, and no other mode dims the "
+                        f"speaker. Remove the key")
         if mode == "split":
-            # No scrim at all: the speaker below the canvas plays undimmed. The
-            # canvas is a LIGHT surface with dark text - the opposite mood from
-            # stage/full, which dim the frame.
+            # No scrim: the speaker below the canvas plays undimmed. The canvas
+            # is a LIGHT surface with dark text, and it is opaque rather than a
+            # tint over the frame.
             pill = ""
             if beat.get("counter", True) and cid in split_index:
                 i, n = split_index[cid]
@@ -501,14 +555,29 @@ def build(project):
             # on it staggers in (see k_canvas).
             if pill:
                 g.append(an.pop(f"'.card[data-card-id=\"{cid}\"] #{cid}-pill'", st + 0.18, 0.28, 0.75))
-            scrim = ""
+            ground = ""
+        elif mode == "full":
+            # `full` is B-roll: the frame is REPLACED, not tinted. Either the
+            # beat's own image fills it edge to edge or the brand ground does.
+            # Nothing translucent, because a half-visible speaker behind a card
+            # is the thing this mode exists to stop being.
+            ground = (f'<div class="broll" id="{cid}-broll">'
+                      f'<img src="images/{cid}.png" alt=""/></div>' if broll_img
+                      else f'<div class="broll" id="{cid}-broll"></div>')
+            g.insert(0, an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-broll'", st, 0.34))
+            if broll_img:
+                g.insert(1, an.kenburns(f"'.card[data-card-id=\"{cid}\"] #{cid}-broll img'",
+                                        st, max(0.5, en - st), 1.0,
+                                        float((img or {}).get("zoom", 1.06))))
         else:
-            scrim = ('<div class="scrim full%s"></div>' % (" takeover" if takeover else "") if mode == "full"
-                     else '<div class="scrim stage"></div>' if mode == "stage"
-                     else '<div class="scrim"></div>')
+            # top / stage: nothing at all over the footage. Separation, where a
+            # card needs it, is the plate below - local to the card.
+            ground = ""
+        if mode != "split" and wants_plate(kind, beat) and body:
+            body = f'<div class="plate" id="{cid}-plate">{body}</div>'
         frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n'
                 f'{card_css(cid, mode, br, beat.get("layout"), canvas_h, cfit, bool(cimg))}\n</style>\n'
-                f'<div class="root">{scrim}{body}</div>\n</div>')
+                f'<div class="root">{ground}{body}</div>\n</div>')
         open(os.path.join(pub, "cards", f"{cid}.html"), "w", encoding="utf-8").write(frag)
 
         first_at = None
@@ -838,19 +907,30 @@ def sfx_gain(path, target_db=-11.0):
     return max(0.05, min(6.0, 10 ** ((target_db - float(m.group(1))) / 20.0)))
 
 
-SIL_RE = re.compile(r"silence_end:\s*([0-9.]+)")
+SIL_END_RE = re.compile(r"silence_end:\s*([0-9.]+)")
+SIL_START_RE = re.compile(r"silence_start:\s*(-?[0-9.]+)")
 
 
 def sfx_lead_silence(path):
     """Several bundled files open with ~0.4 s of digital silence. Starting the
     clip at the cue time therefore plays the transient LATE and it misses the
-    visual hit. Measure the lead-in and start the clip that much earlier."""
+    visual hit. Measure the lead-in and start the clip that much earlier.
+
+    Only silence that begins AT THE START of the file is a lead-in. Most of the
+    short sounds are the opposite shape - a transient, then trailing silence -
+    and counting that as a lead-in drags the cue earlier by nearly the whole
+    file. Compare the first silence_start against zero rather than pattern
+    matching the log text: "silence_start: 0.185805" contains the characters
+    "silence_start: 0" without starting at zero, which is how six of the
+    nineteen bundled sounds (click, click-soft, key-press, pop, whoosh,
+    whoosh-short) came to play up to 0.72 s early."""
     r = sh(["ffmpeg", "-i", path, "-af", "silencedetect=n=-45dB:d=0.15", "-f", "null", "-"])
     err = r.stderr or ""
-    if "silence_start: 0" not in err:
+    start = SIL_START_RE.search(err)
+    end = SIL_END_RE.search(err)
+    if not start or not end or float(start.group(1)) > 0.01:
         return 0.0
-    m = SIL_RE.search(err)
-    return min(1.0, float(m.group(1))) if m else 0.0
+    return min(1.0, float(end.group(1)))
 
 
 def sfx_duration(sdir, name, fname):

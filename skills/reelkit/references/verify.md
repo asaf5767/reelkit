@@ -29,30 +29,34 @@ still runs.
 outside the canvas. Plus beat-overlap and a caption-band-versus-mouth check
 across the whole reel.
 
-## How the face check is calibrated
+## How the head check is calibrated
 
-Two details matter, and getting them wrong makes the check useless:
+**It protects the whole head, not the detected face box.** OpenCV's frontal-face
+box starts at mid-forehead: measured across a 90-second cut at seven timestamps,
+the hair top sat 0.097–0.145 of the box height *above* the box. A rule built on
+the box therefore protects the eyes and mouth and leaves the forehead and
+hairline exposed — which is how a reel could pass this gate at 0% overlap and
+still look like the graphics were sitting on the speaker's head.
 
-- **Only the lower 70% of the face counts.** Cards arrive from above, and clipping
-  the top of someone's hair is harmless. Eyes and mouth are not.
-- **The check is mode-aware.** In `top` mode the speaker is the subject, so a card
-  on their face is an error at 12% and a warning at 4%. In `stage`/`full` the
-  speaker is deliberately dimmed and overlap is the intent — only a card burying
-  more than 55% of them is worth a warning.
+`head_rect()` grows the detected box by `HAIR_RATIO` (0.28 of its height) upward,
+`JAW_RATIO` (0.08) down and `HEAD_PAD_X` (0.06) each side. The hair ratio is
+roughly double the measured worst case, so it still holds for taller hair, a cap
+or a tilted head on footage nobody has seen.
 
-Without the mode rule every `stage` beat in a normal reel reports as a defect,
-which trains you to ignore the tool.
+**One rule for every mode that plays over live footage.** `top`, `stage` and
+`split` are all checked the same way, because none of them dims the speaker any
+more — there is no longer a mode in which covering him is "intended". Overlap is
+measured **head-relative**: a percentage of the head, not of the card, so a big
+card cannot dilute the number. Any overlap ≥1% is an ERROR, anything above 0 a
+WARN. `full` is exempt rather than tolerant: it is B-roll and replaces the frame
+outright, so there is no speaker to cover.
 
-**`split` is checked against the panel, not the card.** The light panel is opaque,
-so anything under it is gone — the check measures how much of the speaker's
-eye/mouth band the panel rectangle (`layout.canvas`, default 56% of frame height)
-covers, band-relative so a large panel cannot dilute the number, plus any reach
-into the caption band. Error at 12% of the band covered, warning at 4%, and any
-reach into the caption band is an error. Builder and checker share
-`split_canvas_h()` and the same face detection, so they cannot disagree about
-where the panel sits. `build` already caps the panel above the eye line per beat;
-this check is the enforcement behind it, including for plans written before that
-cap existed.
+`split` is checked against the **panel**, not the card: the light panel is opaque,
+so anything under it is gone. Builder and checker share `split_canvas_h()`,
+`head_rect()` and the same face detection, so they cannot disagree about where
+the panel sits or where the head starts. `build` already caps the panel clear of
+the head per beat; this check is the enforcement behind it, including for plans
+written before that cap existed.
 
 **A split panel clips its own overflow**, so a payload that does not fit fails
 silently in the render — it just looks like a cropped picture. Two measurements
@@ -73,13 +77,29 @@ them alone and reports.
 
 ## `--fix`
 
-Applies only remedies that are mechanical: a `top`-mode card covering the eyes or
-mouth gets a `layout.top` that places it above the head, when it fits; a `split`
-panel clipping the eyes gets a `layout.canvas` in pixels that stops above the eye
-line, when at least 320px of panel remains. Everything
-else is reported, never silently rewritten — a card that overlaps the caption band
-might want to move, shrink, change mode or be deleted, and only a person or an
-agent with the context can say which.
+Applies only remedies that are mechanical, in this order for a card on the head:
+
+1. **Move it up.** If the card fits above `head_clear_y`, it gets a `layout.top`
+   that puts it there.
+2. **Shrink it.** If it does not fit at its current size, it gets a
+   `layout.scale` computed from the headroom actually measured. The box is
+   measured *with* any existing scale applied, so repeated runs compound rather
+   than fight each other.
+3. **Nothing.** Below `SCALE_FLOOR` (0.62) the card stops being readable at phone
+   size. The ERROR stands, and the message names the real options: B-roll, or a
+   kind that says the same thing in less space. Shrinking a card into
+   illegibility to satisfy a checker is worse than failing.
+
+A `split` panel on the head gets a `layout.canvas` in pixels that stops clear of
+it, when at least 320px of panel remains.
+
+Everything else is reported, never silently rewritten — a card that overlaps the
+caption band might want to move, shrink, change mode or be deleted, and only a
+person or an agent with the context can say which.
+
+On a 14-beat reel shot as a tight selfie, this took 10 head-collision errors down
+to 1; the one that remained was a phone-mockup card 817px tall, which genuinely
+cannot coexist with the speaker at that framing and became a B-roll beat.
 
 Re-run `build` after `--fix` for the change to reach the composition.
 

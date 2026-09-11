@@ -46,6 +46,9 @@ impact-bass-2 key-press notification ping pop riser sparkle typing whoosh
 whoosh-short whoosh-cinematic`. A name that does not resolve is skipped with a
 warning — a missing sound never blocks a render.
 
+Nineteen names, eighteen sounds: `click` and `click-soft` are byte-identical
+files. `click-soft` is not a quieter variant — lower its `volume` instead.
+
 Those files are Pixabay-licensed: free to use commercially inside a rendered
 video, no attribution. reelkit does **not** vendor them, because re-hosting the
 raw files in a public repo is a different permission than using them in a video.
@@ -60,9 +63,22 @@ Each file is normalised to `audio.sfxTargetDb` (default −11 dBFS peak) before 
 cue's relative `volume` is applied, so one number means one thing.
 
 **Lead-silence compensation.** Several files open with roughly 0.4 s of digital
-silence — `chime` and `typing` both do. Starting the clip at the cue time plays
+silence — `chime` (0.42 s), `typing` (0.44 s), `error` (0.60 s), `riser` (0.76 s),
+`ping`, `glitch-3` and `whoosh-cinematic`. Starting the clip at the cue time plays
 the transient late and it misses the visual hit. reelkit measures the lead-in and
 starts the clip that much earlier so the audible onset lands on the cue.
+
+Only silence at the *start* of a file counts. Most of the short sounds are the
+opposite shape — transient first, then trailing silence — and `click`,
+`click-soft`, `key-press`, `pop`, `whoosh` and `whoosh-short` all end that way.
+Treating their tail as a lead-in drags the cue up to 0.72 s early, which is 22
+frames at 30 fps and plainly audible. reelkit compares the first `silence_start`
+against zero to tell the two apart.
+
+**If you want a sound to lead into its moment**, say so in the plan with a
+negative `at` — `{ "name": "whoosh-short", "at": -0.18 }` starts the swell before
+the beat so it arrives on it. That is a creative choice, not a correction, which
+is why it lives in the cue rather than in the measurement.
 
 ### Placing them well
 
@@ -75,6 +91,28 @@ starts the clip that much earlier so the audible onset lands on the cue.
   appearing in a pipeline. That is where SFX genuinely add information.
 - **Keep them under the voice.** These are accents; if a cue competes with a word,
   lower its relative `volume` rather than moving the word.
+
+### `split` beats want sound more than the others do
+
+Cues are mode-independent — a split beat takes `sfx` like any other. But split is
+the one mode that **hard-cuts**, and a hard cut with no sound reads as a dropped
+frame rather than a decision. The pattern that works:
+
+```jsonc
+{ "id": "b04", "mode": "split", "kind": "canvas", "start": 12.0, "end": 17.4,
+  "sfx": [ { "name": "click", "at": 0, "volume": 0.7 } ] }
+```
+
+- **Advancing from one split to the next** — `click` at `at: 0`, exactly on the
+  cut. It is the slide-advance sound, and it is the case that most needs it.
+- **Entering split from `top`/`stage`/`full`** — a register change rather than an
+  advance, so a short swell suits it better: `whoosh-short` at `at: -0.18`, which
+  arrives on the cut instead of starting there.
+- **Leaving split** needs nothing. The next card fades in and carries itself.
+
+This is deliberately not automatic. Every other sound in reelkit is in the plan
+because someone put it there, and a mode that played a click on its own would be
+the only thing in the tool making noise you did not ask for.
 
 ## Music
 
