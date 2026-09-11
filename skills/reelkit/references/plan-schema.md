@@ -96,7 +96,16 @@ structural beats of a reel - the point being made, not the decoration around it.
   "kind": "canvas",
   "layout": { "canvas": 0.56 },        // fraction of frame height, or explicit px
   "counterLabel": "2 / 5",             // optional; default is "i / n" over split beats
-  "data": { "kicker": "…", "headline": "…" }
+  "data": {
+    "kicker": "…", "headline": "…",
+    "image": {                         // optional payload on the panel
+      "prompt": "…",                   // what a generator should draw
+      "fit": "wide",                   // "wide" under the text | "tall" beside it
+      "frame": "soft",                 // "soft" bordered | "bare" no frame
+      "zoom": 1.03,                    // slow push; 1.0 holds still
+      "caption": "…"
+    }
+  }
 }
 ```
 
@@ -121,6 +130,38 @@ framing is too tight for split mode and `verify` fails the beat - pick another
 mode for it. When no head is detected (cv2 missing, or no face in frame), the
 requested height is kept and the note is printed, so do not hand-tune the
 default: run the gate.
+
+#### Images on the panel
+
+A canvas beat can carry a real picture — a screenshot, a product shot, a
+diagram — alongside its text. It declares that in **`data.image`**, not the
+top-level `image` block every other mode uses, because the slot's box is not
+authorable: the panel's height is resolved per beat against the detected face,
+so the shape only exists once the canvas does. Everything downstream is the
+same path as a `kind: "image"` beat — the file goes at
+`public/images/<beat-id>.png`, the slot appears in `visuals.json` with its exact
+box and aspect, and a missing file renders the loud dashed placeholder carrying
+the prompt, inside the panel, at the size the picture would have had.
+
+`fit` picks the arrangement, and it is a statement about the *picture*, not the
+panel:
+
+| fit | arrangement | the slot it publishes |
+| --- | --- | --- |
+| `wide` (default) | picture stacked under the kicker + headline, full panel width | landscape — roughly 1.5:1 at a full-height panel, wider as the face cap lowers it |
+| `tall` | picture beside the text, on the panel's end edge | portrait — roughly 0.45:1, so a phone screenshot keeps its height |
+
+Read `visuals.json` after `build` for the exact box rather than assuming those
+ratios: the face cap changes the panel height per beat, and the published box
+changes with it.
+
+The picture is sized by flexbox against the resolved panel and drawn with
+`object-fit: contain`, so it can never spill or distort. What a too-short panel
+produces instead is a squeezed frame, and `verify` fails the beat when the
+picture settles below 180px or when the text block overruns the panel — see
+`references/verify.md`. If a beat trips that, the panel is genuinely too shallow
+for a payload on this footage: cut the image, shorten the headline, or give the
+beat another mode.
 
 ## kinds
 
@@ -177,9 +218,11 @@ Percentages should total 100.
    "initial": "A", "cta": "Follow" }`
 
 ### `canvas` — kicker + headline on the light split panel
-`{ "kicker": "…", "headline": "…" }`
+`{ "kicker": "…", "headline": "…", "image": { … } }`
 Only for `mode: "split"`. Start-aligned, so it reads correctly in both
-directions. Keep the headline to a few words: it sets at 96px.
+directions. Keep the headline to a few words: it sets at 96px, and on a
+face-capped panel a long one is what pushes an image below its minimum.
+`image` is optional — see **Images on the panel** above.
 
 ### `image` — a generated image is the whole beat
 `{ "caption": "…", "frame": "soft", "zoom": 1.08 }`

@@ -23,7 +23,8 @@ import argparse, json, os, statistics, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
-                   detect_faces, EYE_LINE, CANVAS_MARGIN, CANVAS_MIN)  # noqa: E402
+                   detect_faces, EYE_LINE, CANVAS_MARGIN, CANVAS_MIN,
+                   CANVAS_IMG_MIN)  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -89,10 +90,18 @@ def measure_cards(project, plan, W, H):
                     x0=Math.min(x0,r.left); y0=Math.min(y0,r.top);
                     x1=Math.max(x1,r.right); y1=Math.max(y1,r.bottom); n++;
                   });
-                  return n ? {x:x0,y:y0,w:x1-x0,h:y1-y0,n} : null;
+                  // The image frame inside a split panel is reported
+                  // separately: it is flex-sized against the resolved canvas,
+                  // so its settled height is the only honest answer to "did
+                  // the picture actually fit".
+                  const fr = root.querySelector('.cimgframe');
+                  const f = fr ? fr.getBoundingClientRect() : null;
+                  return n ? {x:x0,y:y0,w:x1-x0,h:y1-y0,n,
+                              fw: f ? f.width : null, fh: f ? f.height : null} : null;
                 }""")
                 if box:
-                    res[cid] = {k: round(v, 1) for k, v in box.items()}
+                    res[cid] = {k: (round(v, 1) if isinstance(v, (int, float)) else v)
+                                for k, v in box.items()}
             finally:
                 os.unlink(tmp)
         br.close()
@@ -163,6 +172,29 @@ def run(project, as_json, fix):
                 if cc >= 2:
                     findings.append(("ERROR", cid,
                                      f"split canvas reaches into the caption band ({cc}%)"))
+            # The panel clips its own overflow, so a payload that does not fit
+            # fails silently in the render - it just looks like a cropped
+            # picture. These two checks are what make it loud instead.
+            if box:
+                # Overflow escapes BOTH edges, not just the bottom: the panel
+                # centres its content, so a too-tall block hangs equally above
+                # and below and `overflow:hidden` clips it at both ends. Only
+                # the top edge showed up the first time this was measured.
+                spill = max(-box["y"], (box["y"] + box["h"]) - ch)
+                row["canvasSpillPx"] = round(spill, 1)
+                if spill > 2:
+                    findings.append(("ERROR", cid,
+                                     f"split canvas content overruns the {ch}px panel by "
+                                     f"{spill:.0f}px and is clipped - shorten the headline, "
+                                     f"drop the image, or give this beat another mode"))
+                fh_px = box.get("fh")
+                if fh_px is not None:
+                    row["canvasImageH"] = round(fh_px, 1)
+                    if fh_px < CANVAS_IMG_MIN:
+                        findings.append(("ERROR", cid,
+                                         f"the image is squeezed to {fh_px:g}px inside a "
+                                         f"{ch}px panel (needs at least {CANVAS_IMG_MIN}px) - "
+                                         f"this canvas is too short to carry a picture"))
         if not HAVE_PW:
             report.append(row)
             continue

@@ -33,6 +33,16 @@ Ken Burns push. Use when the image *is* the idea.
 **`behind`** — the image sits at 55% opacity behind the drawn card. Use for texture
 and atmosphere under a chart or a notification, never for anything that must be read.
 
+**`canvas`** — the image sits inside a `split` beat's light panel, beside or under
+the kicker and headline. This one is declared in `data.image` rather than the
+beat's top-level `image` block, because the panel's height is resolved per beat
+against the detected face and the slot's box only exists once the canvas does.
+Schema and the `wide`/`tall` choice: `references/plan-schema.md`.
+
+The palette advice below inverts for `canvas`: the panel is a **light** surface,
+so a dark-ground image is the thing that punches a hole. Ask for a light or white
+background, and `"frame": "bare"` when the image already carries its own edge.
+
 ## Writing prompts that survive contact with the reel
 
 - **Match the aspect ratio in `box`.** A square image in a 1.6:1 slot gets letterboxed.

@@ -205,6 +205,31 @@ def split_canvas_h_face(layout, H, face):
     return min(req, safe), True
 
 
+# ------------------------------------------------------- split image payloads
+CANVAS_PAD_T, CANVAS_PAD_X, CANVAS_PAD_B = 72, 64, 84
+CANVAS_TEXT_H = 300     # kicker + a two-line headline, measured from the CSS
+CANVAS_IMG_MIN = 180    # below this the picture is a strip, not a payload
+
+
+def canvas_image_box(canvas_h, fit, direction, W):
+    """Nominal pixel box for an image inside a split panel, published to
+    visuals.json so a generator makes the right shape.
+
+    The real layout is flexbox against the resolved panel, because the panel's
+    height is decided per beat by the face cap - this box is the target, and
+    verify measures what actually happened. `fit` picks the arrangement:
+    "wide" stacks the picture under the text across the full panel, "tall" puts
+    it beside the text on the end edge, where a portrait shot keeps its height."""
+    inner_w = W - 2 * CANVAS_PAD_X
+    inner_h = canvas_h - CANVAS_PAD_T - CANVAS_PAD_B
+    if fit == "tall":
+        w = int(inner_w * 0.44)
+        x = CANVAS_PAD_X if direction == "rtl" else W - CANVAS_PAD_X - w
+        return [x, CANVAS_PAD_T, w, max(1, inner_h)]
+    y = CANVAS_PAD_T + CANVAS_TEXT_H + 22
+    return [CANVAS_PAD_X, y, inner_w, max(1, canvas_h - CANVAS_PAD_B - y)]
+
+
 def detect_faces(video, times, W, H):
     """Median head box per key across sampled timestamps, in canvas pixels.
     Shared by the builder (face-aware split sizing) and verify (enforcement)
@@ -486,10 +511,11 @@ def k_follow(cid, d, br, an, st, en):
 
 
 def k_canvas(cid, d, br, an, st, en):
-    """Kicker + headline on the light split canvas. Start-aligned, so it reads
-    correctly in both directions. Deliberately the only canvas kind for now:
-    every other kind is designed for a dark surface and would need a light
-    variant, which is a design-system job rather than this slice."""
+    """Kicker + headline on the light split canvas, optionally over a framed
+    image. Start-aligned, so it reads correctly in both directions.
+    Deliberately the only canvas kind: every other kind is designed for a dark
+    surface and would need a light variant, which is a design-system job rather
+    than this slice."""
     D = DIR(br); g = []
     kick = (f'<div id="{cid}-k" class="ckicker" dir="{D}">{esc(d["kicker"])}</div>'
             if d.get("kicker") else "")
@@ -500,7 +526,37 @@ def k_canvas(cid, d, br, an, st, en):
     if kick:
         g.append(an.slide(S(cid, cid + "-k"), st + 0.04, 0.26, dy=-14))
     g.append(an.chars(S(cid, cid + "-h"), st + 0.10, 0.30, 0.014))
-    return f'<div class="cblock">{kick}{head}</div>', g
+    block = f'<div class="cblock">{kick}{head}</div>'
+
+    img = d.get("image")
+    if not img:
+        return block, g
+
+    # The image is sized by flexbox against the resolved panel, not by a fixed
+    # height: the panel's height is decided per beat by the face cap, so any
+    # constant here would be wrong on the next clip. object-fit:contain means
+    # the picture can never spill or distort - what a too-short panel produces
+    # is a squashed frame, which verify measures and fails.
+    present = bool(br.get("_canvasImg"))
+    inner = (f'<img id="{cid}-cimg" src="images/{cid}.png" alt=""/>' if present
+             else f'<div class="cimgslot" dir="{D}">IMAGE SLOT <b>{cid}</b> &mdash; '
+                  f'drop a PNG at public/images/{cid}.png<br/><br/>'
+                  f'{esc(img.get("prompt", "") or d.get("headline", ""))}</div>')
+    cap = (f'<div id="{cid}-ccap" class="cimgcap" dir="{D}">{esc(img["caption"])}</div>'
+           if img.get("caption") else "")
+    frame = (f'<div id="{cid}-cframe" class="cimgframe {img.get("frame", "soft")}">'
+             f'{inner}</div>')
+    # Settled within ~0.5s of the hard cut: the panel is already up, so a slow
+    # reveal just reads as the image being late.
+    g.append(an.pop(S(cid, cid + "-cframe"), st + 0.12, 0.32, 0.90))
+    if present:
+        z = float(img.get("zoom", 1.03))
+        if z != 1.0:
+            g.append(an.kenburns(S(cid, cid + "-cimg"), st + 0.12,
+                                 max(0.5, en - st - 0.3), 1.0, z))
+    if cap:
+        g.append(an.slide(S(cid, cid + "-ccap"), st + 0.22, 0.24, dy=12))
+    return f'<div class="cpane">{block}<div class="cmedia">{frame}{cap}</div></div>', g
 
 
 def k_doodle(cid, d, br, an, st, en):

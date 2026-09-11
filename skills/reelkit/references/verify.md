@@ -54,6 +54,23 @@ where the panel sits. `build` already caps the panel above the eye line per beat
 this check is the enforcement behind it, including for plans written before that
 cap existed.
 
+**A split panel clips its own overflow**, so a payload that does not fit fails
+silently in the render — it just looks like a cropped picture. Two measurements
+make it loud instead:
+
+- **Overrun.** The settled content box against the panel rectangle. The panel
+  centres its content, so a too-tall block hangs equally above *and* below;
+  the check reads both edges, not just the bottom. Any overrun is an ERROR.
+- **Squeeze.** When the beat carries an image, the `.cimgframe` rect is measured
+  on its own, because the frame is flex-sized against the resolved canvas and
+  its settled height is the only honest answer to "did the picture actually
+  fit". Below 180px it is an ERROR: the panel is too shallow for a payload on
+  this footage.
+
+Neither has a mechanical fix — cutting the image, shortening the headline and
+changing the beat's mode are different editorial decisions — so `--fix` leaves
+them alone and reports.
+
 ## `--fix`
 
 Applies only remedies that are mechanical: a `top`-mode card covering the eyes or

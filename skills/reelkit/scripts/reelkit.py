@@ -17,7 +17,8 @@ import argparse, json, os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    lang_direction as cards_lang_direction, split_canvas_h,
-                   split_canvas_h_face, detect_faces, CANVAS_MARGIN)
+                   split_canvas_h_face, detect_faces, CANVAS_MARGIN,
+                   canvas_image_box)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -122,7 +123,7 @@ text-shadow:0 4px 22px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.95);}}
 """.strip()
 
 
-def card_css(cid, mode, br, layout=None, canvas_h=0):
+def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide"):
     D = br.get("_dir", "rtl"); START = "right" if D == "rtl" else "left"
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
@@ -152,7 +153,28 @@ def card_css(cid, mode, br, layout=None, canvas_h=0):
  font-family:'{br['latinFont']}',sans-serif;font-size:28px;font-weight:900;
  letter-spacing:.10em;color:{br.get('canvasText', '#14161C')};
  background:rgba(0,0,0,.06);border:2px solid rgba(0,0,0,.16);
- border-radius:999px;padding:10px 26px; }}""" if mode == "split" else ""
+ border-radius:999px;padding:10px 26px; }}
+{P} .cpane {{ display:flex;flex-direction:{'row' if fit == 'tall' else 'column'};
+ gap:{'40px' if fit == 'tall' else '22px'};align-items:stretch;
+ flex:1 1 auto;min-height:0;min-width:0;
+ /* the counter pill is absolutely positioned in the panel's bottom-start
+    corner; reserve its strip or an image caption lands on top of it */
+ padding-bottom:56px; }}
+{P} .cpane > .cblock {{ flex:0 1 auto;min-height:0;justify-content:center; }}
+{P} .cmedia {{ display:flex;flex-direction:column;gap:14px;
+ flex:1 1 auto;min-height:0;min-width:0;justify-content:center; }}
+{P} .cimgframe {{ flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;
+ border-radius:24px;background:rgba(0,0,0,.04);
+ display:flex;align-items:center;justify-content:center; }}
+{P} .cimgframe.soft {{ border:2px solid rgba(0,0,0,.12);
+ box-shadow:0 18px 46px rgba(0,0,0,.16); }}
+{P} .cimgframe.bare {{ border:0;box-shadow:none;background:transparent; }}
+{P} .cimgframe img {{ width:100%;height:100%;object-fit:contain;display:block; }}
+{P} .cimgslot {{ padding:28px;font-size:30px;font-weight:800;line-height:1.35;
+ color:{br.get('canvasText', '#14161C')};direction:{D};text-align:{START};
+ border:3px dashed {A[4]};border-radius:20px;background:rgba(0,0,0,.03); }}
+{P} .cimgcap {{ flex:0 0 auto;font-size:30px;font-weight:700;text-align:{START};
+ direction:{D};color:{br.get('canvasMuted', '#8A8F98')}; }}""" if mode == "split" else ""
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
@@ -390,6 +412,34 @@ def build(project):
         img = beat.get("image")
         img_file = os.path.join(pub, "images", f"{cid}.png")
         has_img = bool(img) and os.path.exists(img_file)
+
+        # A canvas beat carries its picture in data.image rather than the
+        # top-level image block, because its box is not authorable: the panel's
+        # height is resolved per beat against the detected face, so the slot's
+        # shape only exists once the canvas does. Everything downstream - the
+        # file path, visuals.json, the loud placeholder - is the same path.
+        canvas_h = split_canvas_h(beat.get("layout"), H) if mode == "split" else 0
+        cimg = beat.get("data", {}).get("image") if mode == "split" else None
+        if cimg and img:
+            die(f"beat {cid}: a split beat declares both the top-level image block "
+                f"and data.image - they would claim the same file and fight over the "
+                f"layout. Keep data.image; the top-level block is for the other modes")
+        cfit = (cimg or {}).get("fit", "wide")
+        has_cimg = bool(cimg) and os.path.exists(img_file)
+        if cimg:
+            cbox = canvas_image_box(canvas_h, cfit, br.get("_dir", "rtl"), W)
+            visuals.append({
+                "id": cid, "start": st, "end": en, "kind": kind,
+                "file": f"public/images/{cid}.png", "present": has_cimg,
+                "box": {"x": cbox[0], "y": cbox[1], "w": cbox[2], "h": cbox[3]},
+                "aspect": round(cbox[2] / cbox[3], 3),
+                "alpha": False, "mode": "canvas",
+                "prompt": cimg.get("prompt", ""),
+                "intent": beat.get("intent", ""),
+            })
+            if not has_cimg:
+                missing.append(cid)
+
         if img:
             box = img.get("box") or ([70, 300, 940, 700] if mode == "stage"
                                      else ([70, 220, 940, 480] if mode == "full"
@@ -419,14 +469,14 @@ def build(project):
                     f'&mdash; drop a PNG at public/images/{cid}.png<br/><br/>{p}</div></div>')
             g = [an.fade(f"'.card[data-card-id=\"{cid}\"] .missing'", st + 0.1, 0.3)]
         else:
-            body, g = KINDS[kind](cid, beat.get("data", {}), br, an, st, en)
+            kbr = dict(br, _canvasImg=has_cimg) if cimg else br
+            body, g = KINDS[kind](cid, beat.get("data", {}), kbr, an, st, en)
             if has_img:   # mode == "behind"
                 body = (f'<div class="imgbehind" id="{cid}-bg"><img src="images/{cid}.png" alt=""/></div>'
                         + body)
                 g.append(an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-bg'", st + 0.05, 0.5))
 
         takeover = mode == "full" and beat.get("takeover")
-        canvas_h = split_canvas_h(beat.get("layout"), H) if mode == "split" else 0
         if mode == "split":
             # No scrim at all: the speaker below the canvas plays undimmed. The
             # canvas is a LIGHT surface with dark text - the opposite mood from
@@ -450,7 +500,7 @@ def build(project):
                      else '<div class="scrim stage"></div>' if mode == "stage"
                      else '<div class="scrim"></div>')
         frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n'
-                f'{card_css(cid, mode, br, beat.get("layout"), canvas_h)}\n</style>\n'
+                f'{card_css(cid, mode, br, beat.get("layout"), canvas_h, cfit)}\n</style>\n'
                 f'<div class="root">{scrim}{body}</div>\n</div>')
         open(os.path.join(pub, "cards", f"{cid}.html"), "w", encoding="utf-8").write(frag)
 
