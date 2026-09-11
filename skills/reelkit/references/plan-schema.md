@@ -73,7 +73,7 @@ composition. Nothing else is authored by hand.
 | --- | --- | --- | --- |
 | `top` | light gradient | y ≈ 140 | compact beats while the speaker carries the moment |
 | `stage` | heavy gradient | y ≈ 300 | the visual is the point; the speaker recedes |
-| `full` | near-opaque | y ≈ 300 | title cards, outros, anything that owns the frame |
+| `full` | near-opaque | y ≈ 220 | title cards, outros, anything that owns the frame |
 
 Beats must not overlap in time. `end` is clamped to the media duration.
 

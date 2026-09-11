@@ -124,11 +124,12 @@ def card_css(cid, mode, br, layout=None):
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
     top = (layout or {}).get("top")
-    # `full` sits at 300 like `stage`, not 140 like `top`: its scrim is
-    # near-opaque, so the card owns the frame and crowding the top edge leaves a
-    # large dead band below it. plan-schema.md has documented 300 all along.
+    # `full` sits at 220, between `top` (140) and `stage` (300): its scrim is
+    # near-opaque, so the card owns the frame - 140 crowds the top edge and
+    # leaves a dead band below, while 300 pushes a frame-owning card too low.
     pad = (f"{int(top)}px 0 0 0" if top is not None
-           else ("300px 0 0 0" if mode in ("stage", "full") else "140px 0 0 0"))
+           else ("300px 0 0 0" if mode == "stage"
+                 else ("220px 0 0 0" if mode == "full" else "140px 0 0 0")))
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;align-items:flex-start;
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
@@ -330,7 +331,9 @@ def build(project):
         img_file = os.path.join(pub, "images", f"{cid}.png")
         has_img = bool(img) and os.path.exists(img_file)
         if img:
-            box = img.get("box") or ([70, 300, 940, 700] if mode == "stage" else [70, 140, 940, 480])
+            box = img.get("box") or ([70, 300, 940, 700] if mode == "stage"
+                                     else ([70, 220, 940, 480] if mode == "full"
+                                           else [70, 140, 940, 480]))
             visuals.append({
                 "id": cid, "start": st, "end": en, "kind": kind,
                 "file": f"public/images/{cid}.png", "present": has_img,
