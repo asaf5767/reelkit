@@ -222,7 +222,10 @@ covers what is worth cutting.
 
 ## 9. Audio
 
-**Sound effects are supported and tested.** Add cues to any beat:
+**Sound effects are automatic and tested.** `build` places event-tied cues on its
+own - whoosh on scene changes, pop on hero text, click on UI cards, soft hit on
+data reveals, riser into the CTA - and ducks every cue under the measured voice.
+A beat with its own `sfx` list overrides the automation for that beat:
 
 ```jsonc
 "sfx": [ { "name": "pop", "at": 0.15 }, { "name": "chime", "at": 2.0 } ]

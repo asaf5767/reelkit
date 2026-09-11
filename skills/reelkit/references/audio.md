@@ -14,6 +14,27 @@ reelkit places timed SFX on their own tracks. Cues live on a beat:
 normalised target (see below), default `audio.sfxVolume` = 0.8. Global cues that
 belong to no beat go in `audio.sfx[]` with absolute `at`.
 
+### Automatic cues (default)
+
+`build` derives cues from the edit itself - you do not place them by hand:
+
+- **whoosh** on every scene change (a beat entering in `split` or `stage` mode)
+- **pop** when hero text lands
+- **click-soft** on UI cards (notification, chat, code, diff)
+- **impact-bass** soft hit on data reveals (stat, contrast, donut, bars)
+- **riser** into the final beat's reveal
+
+Whoosh variants alternate so consecutive cuts do not repeat a sound, and
+transients are never placed closer than 0.9 s apart. A beat with its own `sfx`
+list keeps full manual control - auto only fills beats that say nothing.
+`audio.autoSfx: false` turns the layer off for a project.
+
+### Voice-priority mixing
+
+The voice is known at build time, so ducking is computed, not guessed: every
+cue's volume is scaled by the measured voice level at its moment (up to 7 dB
+down when speech is present). `audio.voiceDuck: false` disables it.
+
 ### Where the sounds come from
 
 The 19-file library bundled with the HyperFrames `media-use` skill

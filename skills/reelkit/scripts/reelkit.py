@@ -632,7 +632,7 @@ def build(project):
  data-duration="{dur}" data-track-index="1"></video></div>
 <audio id="source-audio" src="input-video.mp4" data-start="0" data-duration="{dur}"
  data-track-index="10" data-volume="{plan.get('audio',{}).get('sourceVolume',1)}"></audio>
-{"".join(sfx_tags)}
+{"".join(sfx_tags)}{music_tag(plan, pub, dur, voice_envelope(project))}
 <div class="bottomveil"></div>
 {"".join(hosts)}
 <script src="vendor/gsap.min.js"></script>
@@ -865,23 +865,153 @@ def sfx_duration(sdir, name, fname):
     return probe_duration(os.path.join(sdir, fname))
 
 
+# ----------------------------------------------------------- auto sound ----
+# Event-tied sound design, derived from the plan instead of hand-placed.
+# A beat with its own `sfx` list keeps full manual control; auto fills only
+# beats that say nothing. `audio.autoSfx: false` turns the whole layer off.
+
+_AUTO_ENTRY_WHOOSH = ("whoosh-short", "whoosh")     # alternated for variety
+_AUTO_UI_KINDS = {"notification", "chat", "code", "diff"}
+_AUTO_HIT_KINDS = {"stat", "contrast", "donut", "bars"}
+
+
+def auto_cues(plan, an):
+    """Derive (beat_id -> [cue]) and absolute global cues from edit events:
+    whoosh on scene changes (split/stage entries), pop on hero text landings,
+    click on UI cards, soft hit on data reveals, riser into the final CTA."""
+    audio = plan.get("audio", {})
+    if audio.get("autoSfx") is False:
+        return {}, []
+    beats = plan["beats"]
+    per_beat, glob, events = {}, [], []
+    whoosh_i = 0
+    for i, b in enumerate(beats):
+        if b.get("sfx"):                       # manual cues win the beat
+            continue
+        cues = []
+        if i > 0 and b.get("mode") in ("split", "stage"):
+            cues.append({"name": _AUTO_ENTRY_WHOOSH[whoosh_i % 2], "at": 0.05,
+                         "volume": 0.7})
+            whoosh_i += 1
+        k = b["kind"]
+        if k == "hero":
+            cues.append({"name": "pop", "at": 0.15, "volume": 0.8})
+        elif k in _AUTO_UI_KINDS:
+            cues.append({"name": "click-soft", "at": 0.25, "volume": 0.7})
+        elif k in _AUTO_HIT_KINDS:
+            cues.append({"name": "impact-bass-2", "at": 0.3, "volume": 0.6})
+        if cues:
+            per_beat[b["id"]] = cues
+            events.extend(float(b["start"]) + float(c["at"]) for c in cues)
+    # riser into the final beat's reveal (absolute time, belongs to no beat)
+    if len(beats) > 1:
+        last = beats[-1]
+        if not last.get("sfx"):
+            rise_at = max(0.0, float(last["start"]) - 1.3)
+            if all(abs(rise_at - e) > 0.9 for e in events):
+                glob.append({"name": "riser", "at": rise_at, "volume": 0.5})
+    # density cap: transients never land within 0.9 s of each other
+    flat = sorted(events)
+    crowded = {t for a, b in zip(flat, flat[1:]) for t in (b,) if b - a < 0.9}
+    for bid, cues in list(per_beat.items()):
+        b = next(x for x in beats if x["id"] == bid)
+        keep = [c for c in cues if float(b["start"]) + float(c["at"]) not in crowded]
+        if keep:
+            per_beat[bid] = keep
+        else:
+            del per_beat[bid]
+    return per_beat, glob
+
+
+def voice_envelope(project):
+    """Voice RMS envelope (dBFS) of the transcript audio in ~0.13 s windows.
+    Offline ducking is possible because the voice track is known at build time."""
+    ap = os.path.join(project, "audio.mp3")
+    if not os.path.exists(ap):
+        return None
+    try:
+        import numpy as np
+    except Exception:
+        return None
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", ap, "-ac", "1", "-ar", "8000",
+                        "-f", "s16le", "-"], capture_output=True)
+    if r.returncode != 0 or not r.stdout:
+        return None
+    pcm = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+    win = 1024
+    n = len(pcm) // win
+    if n == 0:
+        return None
+    rms = np.sqrt((pcm[:n * win].reshape(n, win) ** 2).mean(axis=1))
+    db = 20 * np.log10(np.maximum(rms, 1e-6))
+
+    def at(t):
+        i0 = max(0, min(n - 1, int(t * 8000 / win)))
+        i1 = max(i0 + 1, min(n, int((t + 0.45) * 8000 / win)))
+        return float(db[i0:i1].max())
+    return at
+
+
+def music_tag(plan, pub, dur, env):
+    """Optional background bed: audio.music = {"file": "...", "volume": x}.
+    Gain is measured against the voice so the bed sits under speech, not at a
+    guessed fixed level. Supply a track at least as long as the reel."""
+    m = plan.get("audio", {}).get("music")
+    if not m:
+        return ""
+    project = os.path.dirname(pub)
+    src = m.get("file", "")
+    src = src if os.path.isabs(src) else os.path.join(project, src)
+    if not os.path.exists(src):
+        print(f"reelkit: ! music file {src} not found - continuing without music")
+        return ""
+    dst = os.path.join(pub, "music" + os.path.splitext(src)[1])
+    shutil.copy2(src, dst)
+    vol = float(m.get("volume", 0.0))
+    if vol <= 0 and env is not None:
+        # aim the bed ~14 dB under the measured voice level
+        speech = max(-45.0, sum(env(t) for t in
+                                [x * 0.5 for x in range(2, int(dur * 2) - 1)]) / max(1, int(dur) - 1))
+        r = sh(["ffmpeg", "-i", dst, "-af", "volumedetect", "-f", "null", "-"])
+        mm = re.search(r"mean_volume:\s*(-?[0-9.]+) dB", r.stderr or "")
+        music_db = float(mm.group(1)) if mm else -20.0
+        vol = max(0.03, min(0.5, 10 ** ((speech - 14.0 - music_db) / 20.0)))
+    if vol <= 0:
+        vol = 0.15
+    return (f'<audio id="music-bed" class="clip" src="{os.path.basename(dst)}" '
+            f'data-start="0" data-duration="{dur:.4f}" data-track-index="40" '
+            f'data-volume="{round(vol, 3)}"></audio>')
+
+
+
 def resolve_sfx(plan, pub, dur, an):
     """Collect every cue, copy the files in, and interval-partition them across
     track indices so two overlapping cues never share a track."""
     cues = []
     # relative level: 1.0 == the normalised target, so 0.8 is "a bit under"
     default_vol = float(plan.get("audio", {}).get("sfxVolume", 0.8))
+    auto, auto_global = auto_cues(plan, an)
     for beat in plan["beats"]:
-        for c in beat.get("sfx", []) or []:
+        for c in (beat.get("sfx") if beat.get("sfx") is not None
+                  else auto.get(beat["id"], [])):
             c = {"name": c} if isinstance(c, str) else dict(c)
             cues.append({"name": c["name"],
                          "at": an.q(float(beat["start"]) + float(c.get("at", 0))),
                          "volume": float(c.get("volume", default_vol))})
-    for c in plan.get("audio", {}).get("sfx", []) or []:
+    for c in (plan.get("audio", {}).get("sfx") or []) + auto_global:
         cues.append({"name": c["name"], "at": an.q(float(c["at"])),
                      "volume": float(c.get("volume", default_vol))})
     if not cues:
         return [], []
+
+    env = voice_envelope(os.path.dirname(pub))
+    duck_on = plan.get("audio", {}).get("voiceDuck", True)
+    if env is not None and duck_on:
+        for c in cues:
+            vdb = env(c["at"])
+            duck_db = max(0.0, min(7.0, (vdb + 38.0) * 0.6))
+            if duck_db > 0.5:
+                c["volume"] = round(c["volume"] * 10 ** (-duck_db / 20.0), 3)
 
     sdir = find_sfx_dir(plan.get("audio", {}).get("sfxDir"))
     if not sdir:
