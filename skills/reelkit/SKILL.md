@@ -332,3 +332,16 @@ Full explanations and the RTL specifics: `references/rtl-and-fonts.md` and
 
 A complete worked example — plan, transcript and notes for a 90 s Hebrew reel —
 is in `examples/ai-took-my-job/`.
+
+### Restartable full renders
+
+For environments that may rebuild mid-render, use `scripts/segmentrender.py`.
+It prepares short independent subprojects at visual-beat boundaries, shifts each
+segment's plan/transcript/media to local zero, retains completed segment MP4s, and
+skips them on retry. Final assembly joins video-only segments and muxes the original
+staged audio once, avoiding AAC encoder delay at every boundary.
+
+```bash
+python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/segments \
+  --segment-seconds 12 --workers 2 --out final.mp4
+```
