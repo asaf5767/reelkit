@@ -191,19 +191,56 @@ checked for you — `verify` and `build` report them.)
 
 Fix, rebuild, re-snapshot. Snapshots cost seconds; a render costs minutes.
 
-## 7. Render
+## 7. Preview, checkpoint and render
+
+Use Reelkit's wrapper rather than calling HyperFrames directly. It resolves duration,
+fps and frame count, chooses workers, prints the sizing decision, writes a portable
+composition checkpoint, and runs the existing phone-safe export:
 
 ```bash
-npx hyperframes@latest render public -o output.mp4 --fps 30
-python3 scripts/reelkit.py export --project videos/myreel   # writes final.mp4
-python3 scripts/reelkit.py verify --project videos/myreel   # gates the deliverable too
+# Fast iteration lane: draft quality and at most 10fps. Inspect this before a full render.
+python3 scripts/reelkit.py render --project videos/myreel --preview \
+  --workers 2 --checkpoint-dir checkpoints --out preview.mp4
+
+# Delivery render: full authored fps and standard quality.
+python3 scripts/reelkit.py render --project videos/myreel --workers 2 \
+  --checkpoint-dir checkpoints --out final.mp4
+python3 scripts/reelkit.py verify --project videos/myreel
 ```
 
-Roughly 8 min per 2000 frames on 2 CPUs. `export` writes the phone-safe
-container: moov index first (+faststart), explicit bt709 colour tags, h264
-High yuv420p, AAC. A moov atom at the end of the file - ffmpeg's default -
-opens fine on a desktop and **errors on phones and in WhatsApp**, which is
-exactly where reels get watched. Never hand-patch this with a bare
+Worker precedence is `--workers`, then `REELKIT_RENDER_WORKERS`, then
+`PRODUCER_MAX_WORKERS`, then auto. Auto starts at roughly half the available CPU
+cores, capped at 8. Each worker launches Chrome and uses about 256 MB; an explicit
+count bypasses HyperFrames' auto-sizing, so oversubscribing a small box is slower,
+not faster. Benchmark the actual host with `npx hyperframes@latest benchmark public`.
+Two workers are usually the useful ceiling on a small 2-4 core box. Four workers on
+a sufficiently large host are expected to approach 3x sequential throughput; eight
+can approach 6-7x only when CPU, RAM and storage sustain them. These are targets to
+measure, not promises.
+
+`--checkpoint-dir` writes `reelkit-render-checkpoint.tgz` atomically before capture.
+It contains the plan, transcript, built composition, cards, images, fonts, beat sheet
+and asset ledger, but deliberately excludes the large source video. Keep the source
+in durable storage and copy or attach this small bundle before a long render, so a
+fresh machine can resume from the authored state. HyperFrames' extracted-frame cache
+can also be put on durable disk with `HYPERFRAMES_EXTRACT_CACHE_DIR` when available.
+
+Acceptance runs pin software rendering and prove parallel equivalence:
+
+```bash
+python3 scripts/reelkit.py render --project videos/myreel --workers 1 --software-gpu --out seq.mp4
+python3 scripts/reelkit.py render --project videos/myreel --workers 2 --software-gpu --out par2.mp4
+python3 scripts/renderdiff.py seq.mp4 par2.mp4 --workers 2 --project videos/myreel
+```
+
+The gate requires equal duration/frame count/fps, per-frame SSIM >= 0.999 and PSNR
+>= 50 dB, exact decoded bitmap hashes on about 20 frames including every slice
+boundary +/-1, hash-identical decoded audio, and a passing `verify` run. Repeat with
+four workers on a host that can run four Chrome captures without oversubscription.
+
+The wrapper's export writes the phone-safe container: moov index first (+faststart),
+explicit bt709 colour tags, h264 High yuv420p, AAC. A moov atom at the end of the
+file can fail on phones and WhatsApp. Never hand-patch delivery with a bare
 `ffmpeg -i` copy.
 
 ## 8. Trimming (opt-in)

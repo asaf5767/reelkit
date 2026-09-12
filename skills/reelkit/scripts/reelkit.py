@@ -13,7 +13,7 @@ image-capable agent drop real artwork into named boxes.
 
 Everything is deterministic: same plan.json + same media => byte-identical HTML.
 """
-import argparse, json, os, re, shutil, subprocess, sys
+import argparse, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    lang_direction as cards_lang_direction, split_canvas_h,
@@ -617,7 +617,7 @@ def build(project):
                         f"it will sit visibly empty")
 
         hosts.append(f'<div class="card-host clip" id="card-{cid}" data-card-id="{cid}" data-composition-id="{cid}" '
-                     f'data-start="{st:.4f}" data-duration="{en-st:.4f}" data-track-index="2" '
+                     f'data-no-timeline data-start="{st:.4f}" data-duration="{en-st:.4f}" data-track-index="2" '
                      f'style="left:0;top:0;width:{W}px;height:{H}px;visibility:hidden;opacity:0;">\n{frag}\n</div>')
         sel = f"'.card-host[data-card-id=\"{cid}\"]'"
         tls.append(f"tl.set({sel},{{visibility:'visible'}},{st});")
@@ -654,7 +654,7 @@ def build(project):
                     f'<div class="root"><div class="capline" dir="{DIRC}">{ws}</div></div>\n</div>')
             s, e = cp["start"], cp["end"]
             hosts.append(f'<div class="card-host clip cap-host" id="caption-{cp["id"]}" data-card-id="{cp["id"]}" '
-                         f'data-composition-id="{cp["id"]}" data-start="{s:.4f}" data-duration="{e-s:.4f}" '
+                         f'data-composition-id="{cp["id"]}" data-no-timeline data-start="{s:.4f}" data-duration="{e-s:.4f}" '
                          f'data-track-index="3" style="left:0;top:{top}px;width:{W}px;height:{hgt}px;'
                          f'visibility:hidden;opacity:0;">\n{frag}\n</div>')
             sel = f"'.card-host[data-card-id=\"{cp['id']}\"]'"
@@ -1466,6 +1466,108 @@ def export_deliverable(project, inp, out):
     return 0
 
 
+
+def _project_timing(project):
+    """Return (fps, duration) from the authored plan and grounded transcript/media."""
+    plan_path = os.path.join(project, "plan.json")
+    plan = json.load(open(plan_path, encoding="utf-8")) if os.path.exists(plan_path) else {}
+    meta = plan.get("meta", {})
+    fps = int(meta.get("fps") or 30)
+    duration = float(meta.get("duration") or 0)
+    tpath = os.path.join(project, "transcript.json")
+    if not duration and os.path.exists(tpath):
+        words = json.load(open(tpath, encoding="utf-8"))
+        if isinstance(words, dict): words = words.get("words") or words.get("segments") or []
+        if words: duration = max(float(w.get("end", 0)) for w in words)
+    video = os.path.join(project, "public", "input-video.mp4")
+    if os.path.exists(video):
+        # Media is authoritative for the tail; transcript often ends before the final breath.
+        duration = max(duration, probe_duration(video))
+    return fps, duration
+
+
+def _auto_workers():
+    cores = os.cpu_count() or 2
+    # Chrome capture is memory-heavy and explicit worker counts bypass HyperFrames sizing.
+    return max(1, min(8, cores // 2))
+
+
+def _checkpoint_bundle(project, checkpoint_dir):
+    """Write a small atomic bundle that can reconstruct the authored composition.
+
+    Source video is intentionally excluded: callers should keep it in durable storage.
+    The bundle contains the plan, transcript, generated composition, local images/fonts,
+    and a manifest. It is safe to attach or copy while a render runs.
+    """
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    out = os.path.join(checkpoint_dir, "reelkit-render-checkpoint.tgz")
+    tmp = out + ".tmp"
+    manifest = {
+        "version": 1, "created_at": int(time.time()),
+        "project": os.path.basename(os.path.abspath(project)),
+        "excludes": ["public/input-video.mp4", "*.mp4 render outputs"],
+    }
+    mpath = os.path.join(project, ".reelkit-render-manifest.json")
+    json.dump(manifest, open(mpath, "w", encoding="utf-8"), indent=2)
+    wanted = ["plan.json", "transcript.json", "ASSETS.md", "visuals.json", "BEATS.md",
+              ".reelkit-render-manifest.json", "public/index.html", "public/cards",
+              "public/images", "public/fonts", "public/sfx"]
+    with tarfile.open(tmp, "w:gz") as tf:
+        for rel in wanted:
+            src = os.path.join(project, rel)
+            if os.path.exists(src): tf.add(src, arcname=rel)
+    os.replace(tmp, out)
+    return out
+
+
+def render_project(project, output, workers=None, preview=False, checkpoint_dir=None,
+                   software_gpu=False, keep_raw=False):
+    """Render through HyperFrames with deterministic sizing and a fast preview lane."""
+    project = os.path.abspath(project)
+    public = os.path.join(project, "public")
+    if not os.path.exists(os.path.join(public, "index.html")):
+        die("public/index.html missing - run `reelkit.py build` first")
+    fps, duration = _project_timing(project)
+    env_workers = os.environ.get("REELKIT_RENDER_WORKERS") or os.environ.get("PRODUCER_MAX_WORKERS")
+    source = "auto"
+    if workers is not None:
+        nworkers, source = int(workers), "--workers"
+    elif env_workers:
+        nworkers, source = int(env_workers), "environment"
+    else:
+        nworkers = _auto_workers()
+    if nworkers < 1: die("workers must be >= 1")
+    cores = os.cpu_count() or 2
+    suggested = max(1, cores // 2)
+    print(f"reelkit: render sizing: {duration:.2f}s at {fps}fps = "
+          f"{round(duration * fps)} frames; {nworkers} worker(s) ({source})")
+    if nworkers > suggested:
+        print(f"reelkit: warning - {nworkers} explicit workers exceeds this box's ~{suggested} "
+              "useful default; oversubscription can be slower")
+    if checkpoint_dir:
+        bundle = _checkpoint_bundle(project, os.path.abspath(checkpoint_dir))
+        print(f"reelkit: wrote reconstruction checkpoint {bundle}")
+    out = output if os.path.isabs(output) else os.path.join(project, output)
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    raw = out + ".rendering.mp4"
+    render_fps = min(fps, 10) if preview else fps
+    cmd = ["npx", "-y", "hyperframes@latest", "render", public,
+           "-o", raw, "--fps", str(render_fps), "--workers", str(nworkers),
+           "--quality", "draft" if preview else "standard",
+           "--browser-timeout", "90", "--player-ready-timeout", "90000",
+           "--protocol-timeout", "300000", "--best-effort"]
+    if software_gpu: cmd.append("--no-browser-gpu")
+    print("reelkit: " + ("preview" if preview else "full") +
+          f" render ({render_fps}fps, {'draft' if preview else 'standard'})")
+    r = subprocess.run(cmd, cwd=project)
+    if r.returncode or not os.path.exists(raw):
+        die(f"HyperFrames render failed with exit {r.returncode}")
+    # Preview and full output both pass through the existing phone-safe export.
+    export_deliverable(project, raw, out)
+    if not keep_raw: os.remove(raw)
+    print(f"reelkit: render complete -> {out}")
+    return 0
+
 def doctor():
     ok = True
     for tool, why in (("ffmpeg", "encode/decode"), ("ffprobe", "media probing"),
@@ -1521,6 +1623,12 @@ def main():
     sa.add_argument("--width", type=int, default=1080); sa.add_argument("--height", type=int, default=1920)
     e = sub.add_parser("export"); e.add_argument("--project", required=True)
     e.add_argument("--input", default="output.mp4"); e.add_argument("--out", default="final.mp4")
+    rr = sub.add_parser("render"); rr.add_argument("--project", required=True)
+    rr.add_argument("--out", default="final.mp4"); rr.add_argument("--workers", type=int)
+    rr.add_argument("--preview", action="store_true", help="10fps draft iteration render")
+    rr.add_argument("--checkpoint-dir", help="write a reconstruction bundle before rendering")
+    rr.add_argument("--software-gpu", action="store_true", help="pin SwiftShader for comparisons")
+    rr.add_argument("--keep-raw", action="store_true")
     sub.add_parser("doctor")
     a = ap.parse_args()
     if a.cmd == "scaffold":
@@ -1534,6 +1642,9 @@ def main():
         return _v.run(a.project, a.json, a.fix)
     if a.cmd == "export":
         return export_deliverable(a.project, a.input, a.out)
+    if a.cmd == "render":
+        return render_project(a.project, a.out, a.workers, a.preview,
+                              a.checkpoint_dir, a.software_gpu, a.keep_raw)
     if a.cmd == "cut":
         keeps = [[float(x) for x in seg.split(":")] for seg in a.keep.split(",")]
         return cut_video(a.video, a.out, keeps, a.fps)
