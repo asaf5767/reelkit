@@ -16,9 +16,8 @@ description: >
 **What it does.** Takes one talking-head clip and a `plan.json` and produces a
 rendered vertical reel: the speaker plays full-bleed and untouched, word-by-word
 captions track the speech, and designed visual beats appear above the speaker's
-head. Every visual beat can be a drawn HTML/SVG card *or* a generated image —
-the same plan works either way, so an agent with image generation and an agent
-without both produce a finished reel.
+head. A visual beat can be a concrete HTML/SVG process card or a compact image. Generated
+imagery is optional and never allowed to replace the whole frame as a static still.
 
 **What it is not.** Not a from-scratch video builder (that is HyperFrames'
 `product-launch-video` / `faceless-explainer`). Not a plain subtitler (that is
@@ -106,9 +105,8 @@ python3 scripts/reelkit.py plan --project videos/myreel --lang he --max-beats 14
 
 Writes `plan.draft.json`. Its **timing is derived from real word gaps and is
 usually right**; its **kind guesses are not — expect to change about half**.
-Anything it cannot classify becomes an `image` slot with a drafted prompt, on
-purpose: an unfilled slot renders a loud placeholder that cannot ship by accident,
-whereas a wrong-but-plausible card can. Review it, replace every `TODO`, delete
+Anything it cannot classify stays on the speaker, with a sparse punch-in at some
+clause boundaries. This is deliberate: generated decoration is worse than no card. Review it, replace every `TODO`, delete
 beats that do not earn a visual, then rename to `plan.json`.
 
 Or author `videos/myreel/plan.json` yourself. Full schema: `references/plan-schema.md`.
@@ -119,8 +117,9 @@ this is where reels are won or lost.** The one rule that matters most:
 > spoken and already in the captions. A chart, a chat thread, a diagram, a device
 > screen, a drawing. If your card is just the sentence in a bigger font, cut it.
 
-Beat count: aim for one visual every 4–7 s of speech, and let each beat land on a
-clause boundary from the transcript, not on a round number.
+Beat count: do not force a visual cadence. Keep most of the reel on the face;
+add a beat only when it shows concrete evidence or process that the face and
+captions cannot. Let each beat land on a clause boundary, not a round number.
 
 **Splitting the frame.** Three modes layer a card over the footage; `split` divides
 it instead — an opaque light panel across the top 56%, the speaker undimmed below,

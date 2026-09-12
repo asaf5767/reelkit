@@ -48,7 +48,7 @@ composition. Nothing else is authored by hand.
       "id": "b01",           // stable, unique; also the image filename
       "start": 0.88, "end": 6.90,
       "kind": "notification",
-      "mode": "top",         // "top" | "stage" | "full"
+      "mode": "top",         // "top" | "stage" | "split" | "full"
       "intent": "Hook - a notification claims AI took the job",
       "plate": true,         // optional: force the local plate on or off
       "layout": {            // optional, and what `verify --fix` writes
@@ -96,17 +96,29 @@ speaker. A beat that still carries the key gets a build warning.
 
 Beats must not overlap in time. `end` is clamped to the media duration.
 
-### `full` — B-roll
+### `full` — moving B-roll only
 
-The frame is replaced rather than covered. If the beat has an image and the file
-is present, that image fills the frame edge to edge (`object-fit: cover`, with a
-slow push you can set via `image.zoom`) and the beat's `caption` sits near the
-bottom. Otherwise the brand ground fills it and the card centres on top.
+`full` is intentionally strict: it requires directly relevant moving footage.
+Put a local MP4 or WebM under the project's `public/` folder and point to it:
 
-This is the answer when a card cannot fit above the speaker's head — see below.
-It is also where a generated image belongs when the image *is* the point: a
-picture that owns the frame for four seconds lands, where the same picture
-shrunk into a corner of a panel does not.
+```jsonc
+{
+  "id": "b05", "start": 18.2, "end": 20.8,
+  "kind": "image", "mode": "full",
+  "intent": "show the actual app carrying out the step",
+  "broll": { "src": "broll/app-workflow.mp4", "trim": 2.4 },
+  "data": { "caption": "optional short context" }
+}
+```
+
+- `broll.src` is relative to `public/`. External URLs and parent paths are rejected.
+- `trim` is the source-video start time in seconds and defaults to zero.
+- The B-roll frame is tied to the composition timeline, so snapshots and renders
+  seek to the same frame.
+- A top-level `image` on a `full` beat is rejected. Generated stills, abstract
+  illustrations and static cards do not justify removing the speaker.
+- Keep the voice audio running underneath. Prefer 1-3 second cutaways to actions,
+  screens or physical details that directly prove the spoken line.
 
 ### `split`
 

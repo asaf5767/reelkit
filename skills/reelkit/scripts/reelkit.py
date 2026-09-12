@@ -24,12 +24,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
 DEFAULT_BRAND = {
     "name": "default",
-    "accents": ["#FF7A1A", "#4CC9F0", "#A78BFA", "#4ADE80", "#FB7185"],
-    "bg": "#05060a", "text": "#ffffff",
+    "accents": ["#2563EB", "#0F766E", "#7C3AED", "#15803D", "#BE123C"],
+    "bg": "#111827", "text": "#ffffff",
     "font": "Heebo", "latinFont": "Inter",
     "captionSize": 76, "captionMaxWords": 3, "captionMaxChars": 15,
     "captionTop": 1500, "captionHeight": 360,
-    "captionPlate": "rgba(5,6,10,.60)", "captionIdle": "#FFFFFF",
+    "captionPlate": "rgba(0,0,0,0)", "captionIdle": "#FFFFFF",
+    "captionHighlight": "#93C5FD",
     # split-mode canvas is a LIGHT surface - the opposite mood from stage/full
     "canvasBg": "#F7F7F4", "canvasText": "#14161C", "canvasMuted": "#858A93",
 }
@@ -209,7 +210,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
    screen darker and it affects how I look". Separation, where a card needs it,
    comes from .plate: a local surface the size of the card and nothing more. */
 {P} .broll {{ position:absolute;inset:0;background:{br['bg']};overflow:hidden; }}
-{P} .broll img {{ width:100%;height:100%;object-fit:cover;display:block; }}
+{P} .broll img, {P} .broll video {{ width:100%;height:100%;object-fit:cover;display:block; }}
 {P} .brollcap {{ position:absolute;left:0;right:0;bottom:460px;padding:0 90px;
  font-size:46px;font-weight:800;line-height:1.25;text-align:center;direction:{D};
  text-shadow:0 6px 28px rgba(0,0,0,.85); }}
@@ -257,23 +258,23 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .nico {{ width:56px;height:56px;flex:0 0 auto; }}
 {P} .napp {{ font-size:26px;font-weight:700;opacity:.6; }}
 {P} .nbody {{ font-size:46px;font-weight:900;line-height:1.15;margin-top:4px; }}
-{P} .phone {{ width:560px;background:#0c1018;border:3px solid #2a3145;border-radius:38px;
- overflow:hidden;box-shadow:0 26px 70px rgba(0,0,0,.65); }}
-{P} .phbar {{ display:flex;gap:10px;padding:18px 22px;background:rgba(255,255,255,.05); }}
-{P} .phbar i {{ width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,.25); }}
+{P} .phone {{ width:560px;background:#FFFFFF;color:#18181B;border:2px solid #D4D4D8;border-radius:28px;
+ overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.18); }}
+{P} .phbar {{ display:flex;gap:10px;padding:18px 22px;background:#F4F4F5; }}
+{P} .phbar i {{ width:13px;height:13px;border-radius:50%;background:#A1A1AA; }}
 {P} .thread {{ display:flex;flex-direction:column;gap:16px;padding:26px 24px 30px; }}
 {P} .bub {{ border-radius:22px;padding:18px 24px;max-width:78%;font-size:34px;font-weight:800;line-height:1.25; }}
-{P} .bub.l {{ align-self:flex-start;background:#1b2438;border-bottom-left-radius:8px; }}
-{P} .bub.r {{ align-self:flex-end;background:{A[0]};color:#10121a;border-bottom-right-radius:8px; }}
+{P} .bub.l {{ align-self:flex-start;background:#F4F4F5;color:#18181B;border:1px solid #E4E4E7;border-bottom-left-radius:8px; }}
+{P} .bub.r {{ align-self:flex-end;background:{A[0]};color:#FFFFFF;border-bottom-right-radius:8px; }}
 {P} .typing {{ display:flex;flex-direction:row;gap:10px;max-width:none;padding:20px 24px; }}
 {P} .dot {{ width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.6);display:block; }}
-{P} .win {{ width:820px;background:#0b0f18;border:2px solid #232b3d;border-radius:24px;
- overflow:hidden;box-shadow:0 26px 70px rgba(0,0,0,.6); }}
-{P} .winbar {{ display:flex;align-items:center;gap:11px;padding:18px 22px;background:#141a26; }}
+{P} .win {{ width:820px;background:#FFFFFF;color:#18181B;border:2px solid #D4D4D8;border-radius:20px;
+ overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.18); }}
+{P} .winbar {{ display:flex;align-items:center;gap:11px;padding:18px 22px;background:#F4F4F5; }}
 {P} .winbar i {{ width:15px;height:15px;border-radius:50%; }}
 {P} .winbar .r {{ background:#ff5f57; }} {P} .winbar .y {{ background:#febc2e; }}
 {P} .winbar .g {{ background:#28c840; }}
-{P} .wt {{ margin-inline-start:14px;font:700 24px '{br['latinFont']}',sans-serif;color:#8b95ab; }}
+{P} .wt {{ margin-inline-start:14px;font:700 24px '{br['latinFont']}',sans-serif;color:#71717A; }}
 {P} .code {{ padding:22px 24px;font:700 30px '{br['latinFont']}',ui-monospace,monospace;
  line-height:1.62;position:relative; }}
 {P} .cl {{ display:flex;gap:18px;white-space:nowrap; }}
@@ -282,11 +283,11 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .ccur {{ width:16px;height:32px;background:{A[0]};display:inline-block;margin-inline-start:52px; }}
 {P} .dl {{ display:flex;gap:16px;white-space:nowrap;border-radius:8px;padding:4px 10px;margin:3px 0; }}
 {P} .dl span {{ width:22px;flex:0 0 auto;font-weight:900; }}
-{P} .dl.del {{ background:rgba(251,113,133,.16);color:#ffc4cd; }}
-{P} .dl.add {{ background:rgba(74,222,128,.15);color:#c7f5d8; }}
+{P} .dl.del {{ background:#FFF1F2;color:#9F1239; }}
+{P} .dl.add {{ background:#F0FDF4;color:#166534; }}
 {P} .vchips {{ display:flex;gap:18px;justify-content:center;flex-wrap:wrap;direction:{D}; }}
 {P} .vchip {{ display:flex;align-items:center;gap:14px;font-size:42px;font-weight:900;
- background:rgba(16,18,28,.9);border:2px solid rgba(255,255,255,.16);border-radius:999px;padding:16px 30px; }}
+ background:#FFFFFF;color:#18181B;border:2px solid #D4D4D8;border-radius:999px;padding:16px 30px; }}
 {P} .vchip span {{ width:38px;height:38px;flex:0 0 auto;display:block; }}
 {P} .chips {{ display:flex;flex-wrap:wrap;gap:18px;justify-content:flex-start; }}
 {P} .chip {{ display:flex;align-items:center;gap:14px;font-size:46px;font-weight:800;padding:20px 34px;
@@ -297,10 +298,12 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .clock {{ width:330px;height:330px;flex:0 0 auto; }}
 {P} .klist {{ display:flex;flex-direction:column;gap:16px;flex:1; }}
 {P} .krow {{ display:flex;align-items:center;gap:16px;font-size:42px;font-weight:800;
- background:rgba(14,16,24,.82);border-radius:16px;padding:16px 22px; }}
+ background:#FFFFFF;color:#18181B;border:1px solid #E4E4E7;border-radius:14px;padding:16px 22px;
+ box-shadow:0 8px 24px rgba(0,0,0,.12); }}
 {P} .kt {{ width:36px;height:36px;flex:0 0 auto; }}
 {P} .lgrow {{ display:flex;align-items:center;gap:16px;font-size:36px;font-weight:800;
- background:rgba(14,16,24,.82);border-radius:16px;padding:14px 20px; }}
+ background:#FFFFFF;color:#18181B;border:1px solid #E4E4E7;border-radius:14px;padding:14px 20px;
+ box-shadow:0 8px 24px rgba(0,0,0,.12); }}
 {P} .sw {{ width:26px;height:26px;border-radius:7px;flex:0 0 auto; }}
 {P} .lgn {{ flex:1; }} {P} .lgp {{ font-family:'{br['latinFont']}',sans-serif;font-weight:900; }}
 {P} .svg {{ width:100%;height:auto;display:block;overflow:visible; }}
@@ -388,7 +391,7 @@ def build(project):
 
     hosts, tls, visuals, missing = [], [], [], []
 
-    # ---- video framing: base scale + optional punch-ins -------------------
+    # ---- video framing: base scale + optional clause-driven punch-ins ------
     fr = plan.get("framing", {})
     base = float(fr.get("scale", 1.0))
     origin = fr.get("origin", "50% 30%").replace("%", "\\u0025")
@@ -401,6 +404,26 @@ def build(project):
     # ---- static checks before anything is written -------------------------
     warn = []
     srt = sorted(plan["beats"], key=lambda b: float(b["start"]))
+    # Face-first editorial contract. A full-frame still is a slideshow, not
+    # talking-head B-roll. Full mode is reserved for moving footage that proves
+    # or demonstrates the spoken claim. Decorative images stay small, or go.
+    for b in srt:
+        mode = b.get("mode", "top")
+        if mode not in ("top", "stage", "split", "full"):
+            die(f"beat {b.get('id','?')}: unknown mode {mode!r}")
+        if mode == "full":
+            if b.get("image"):
+                die(f"beat {b['id']}: full-screen still images are not allowed; "
+                    "use directly relevant moving B-roll via `broll.src`, or keep the speaker visible")
+            src = (b.get("broll") or {}).get("src", "")
+            if not src:
+                die(f"beat {b['id']}: full mode requires directly relevant moving B-roll in `broll.src`")
+            if src.startswith(("/", "http:", "https:")) or ".." in src.split("/"):
+                die(f"beat {b['id']}: broll.src must be a project-relative file under public/")
+            if not src.lower().endswith((".mp4", ".webm")):
+                die(f"beat {b['id']}: B-roll must be MP4 or WebM video, not a still")
+            if not os.path.exists(os.path.join(pub, src)):
+                die(f"beat {b['id']}: B-roll file public/{src} is missing")
     for i in range(len(srt) - 1):
         if float(srt[i]["end"]) > float(srt[i + 1]["start"]) + 1e-6:
             warn.append(f"beats {srt[i]['id']} and {srt[i+1]['id']} overlap "
@@ -456,6 +479,7 @@ def build(project):
             die(f"beat {cid}: unknown kind '{kind}'. Known: {', '.join(sorted(KINDS))}")
 
         img = beat.get("image")
+        broll = beat.get("broll") or {}
         img_file = os.path.join(pub, "images", f"{cid}.png")
         has_img = bool(img) and os.path.exists(img_file)
 
@@ -561,14 +585,16 @@ def build(project):
             # beat's own image fills it edge to edge or the brand ground does.
             # Nothing translucent, because a half-visible speaker behind a card
             # is the thing this mode exists to stop being.
+            bsrc = esc(broll["src"])
+            trim = float(broll.get("trim", 0))
+            span = max(0.1, en - st)
+            # HyperFrames owns source seeking. The media is inside a registered
+            # sub-composition, so its local zero is the beat host's `start`.
             ground = (f'<div class="broll" id="{cid}-broll">'
-                      f'<img src="images/{cid}.png" alt=""/></div>' if broll_img
-                      else f'<div class="broll" id="{cid}-broll"></div>')
-            g.insert(0, an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-broll'", st, 0.34))
-            if broll_img:
-                g.insert(1, an.kenburns(f"'.card[data-card-id=\"{cid}\"] #{cid}-broll img'",
-                                        st, max(0.5, en - st), 1.0,
-                                        float((img or {}).get("zoom", 1.06))))
+                      f'<video id="{cid}-broll-video" src="{bsrc}" muted playsinline preload="auto" '
+                      f'data-start="0" data-duration="{span}" data-media-start="{trim}" '
+                      f'data-track-index="0"></video></div>')
+            g.insert(0, an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-broll'", st, 0.18))
         else:
             # top / stage: nothing at all over the footage. Separation, where a
             # card needs it, is the plate below - local to the card.
@@ -615,7 +641,8 @@ def build(project):
     caps = []
     if plan.get("captions", {}).get("enabled", True) and words:
         caps = caption_clips(words, br, dur, an)
-        hi = plan.get("captions", {}).get("highlight") or br["accents"][0]
+        hi = (plan.get("captions", {}).get("highlight") or
+              br.get("captionHighlight") or br["accents"][0])
         top = int(plan.get("captions", {}).get("top", br["captionTop"]))
         hgt = int(plan.get("captions", {}).get("height", br["captionHeight"]))
         for cp in caps:
@@ -1234,41 +1261,36 @@ def draft_plan(project, lang, max_beats):
             elif kind == "contrast":
                 data = {"from": "TODO", "to": "TODO"}
 
+        if not kind:
+            continue                    # the face is the visual; captions still run
         beat = {"id": f"b{bi+1:02d}", "start": st, "end": en,
-                "kind": kind or "image",
-                "mode": "stage" if (kind or "image") in ("chat", "code", "diff", "donut",
-                                                         "bars", "pipeline", "image", "follow") else "top",
-                "intent": text[:110],
-                "_said": text}
-        if kind:
-            beat["data"] = data
-        else:
-            beat["data"] = {"caption": ""}
-            beat["image"] = {
-                "mode": "replace", "alpha": False,
-                "prompt": (f"TODO describe an OBJECT or SCENE that depicts this idea - not the words. "
-                           f"Context: \"{text[:90]}\". Style: flat editorial vector, deep navy ground, "
-                           f"brand accents, no text."),
-            }
+                "kind": kind,
+                "mode": "stage" if kind in ("chat", "code", "diff", "donut",
+                                               "bars", "pipeline", "follow") else "top",
+                "intent": text[:110], "_said": text, "data": data}
         out.append(beat)
 
     plan = {
-        "_draft": ("Heuristic first pass. Timing is derived from real word gaps and is usually right; "
-                   "the KIND guesses are not - expect to change about half. Replace every TODO, delete "
-                   "beats that do not earn a visual, and read references/visual-beats.md before keeping "
-                   "any beat whose card would just restate the sentence."),
+        "_draft": ("Face-first heuristic draft. Known concrete processes become cards; unclassified "
+                   "speech stays on the speaker instead of becoming generated decoration. Replace every "
+                   "TODO and read references/visual-beats.md before adding any visual."),
         "meta": {"title": "TODO", "lang": lang, "fps": 30, "width": 1080, "height": 1920},
         "brand": "default",
         "captions": {"enabled": True},
-        "framing": {"scale": 1.0, "origin": "50% 30%", "punches": []},
+        "framing": {"scale": 1.0, "origin": "50% 30%", "punches": [
+            {"at": round(float(f[0]["start"]), 2),
+             "from": (1.0 if (i // 2) % 2 else 1.045),
+             "to": (1.045 if (i // 2) % 2 else 1.0), "dur": 0.28}
+            for i, f in enumerate(flats) if i and i % 2 == 0
+        ]},
         "beats": out,
     }
     dest = os.path.join(project, "plan.draft.json")
     json.dump(plan, open(dest, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    todo = sum(1 for b in out if "image" in b or "TODO" in json.dumps(b, ensure_ascii=False))
-    print(f"reelkit: drafted {len(out)} beats -> {dest}")
-    print(f"reelkit: {todo} beat(s) still need content. Review, rename to plan.json, then build.")
-    print("reelkit: timing comes from the transcript and is usually right; the kind guesses are not.")
+    todo = sum(1 for b in out if "TODO" in json.dumps(b, ensure_ascii=False))
+    print(f"reelkit: drafted {len(out)} concrete beat(s) -> {dest}")
+    print(f"reelkit: {todo} beat(s) still need content. Unclassified clauses stay on the face.")
+    print("reelkit: timing comes from the transcript; delete any guessed card that does not add evidence.")
     return 0
 
 

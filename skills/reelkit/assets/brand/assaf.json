@@ -1,13 +1,13 @@
 {
   "name": "assaf",
   "accents": [
-    "#FF7A1A",
-    "#4CC9F0",
-    "#A78BFA",
-    "#4ADE80",
-    "#FB7185"
+    "#2563EB",
+    "#0F766E",
+    "#7C3AED",
+    "#15803D",
+    "#BE123C"
   ],
-  "bg": "#05060a",
+  "bg": "#111827",
   "text": "#ffffff",
   "font": "Heebo",
   "latinFont": "Inter",
@@ -16,9 +16,10 @@
   "captionMaxChars": 15,
   "captionTop": 1500,
   "captionHeight": 360,
-  "captionPlate": "rgba(5,6,10,.60)",
+  "captionPlate": "rgba(0,0,0,0)",
   "captionIdle": "#FFFFFF",
-  "canvasBg": "#F7F7F4",
-  "canvasText": "#14161C",
-  "canvasMuted": "#858A93"
+  "canvasBg": "#FAFAF9",
+  "canvasText": "#18181B",
+  "canvasMuted": "#71717A",
+  "captionHighlight": "#93C5FD"
 }

@@ -487,9 +487,9 @@ def k_pipeline(cid, d, br, an, st, en):
     n = len(d["nodes"]); h = 86; gap = 32
     for i, nm in enumerate(d["nodes"]):
         y = 18 + i * (h + gap); col = A(i + 1)
-        bx += (f'<g id="{cid}-b{i}"><rect x="70" y="{y}" width="560" height="{h}" rx="20" fill="#111726" '
+        bx += (f'<g id="{cid}-b{i}"><rect x="70" y="{y}" width="560" height="{h}" rx="20" fill="#FFFFFF" '
                f'stroke="{col}" stroke-width="4"/><text x="350" y="{y+54}" text-anchor="middle" class="ntxt" '
-               f'fill="#fff">{esc(nm)}</text></g>')
+               f'fill="#18181B">{esc(nm)}</text></g>')
         if i < n - 1:
             bx += (f'<path id="{cid}-a{i}" d="M350 {y+h} L350 {y+h+gap}" stroke="#7c879e" stroke-width="6" '
                    f'stroke-dasharray="{gap+2}" stroke-linecap="round"/>'

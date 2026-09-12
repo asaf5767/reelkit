@@ -1,57 +1,76 @@
 # Choosing what a beat shows
 
-The single most common failure in this format is a "visual" that is just the
-sentence the speaker is already saying, set in a bigger font. It adds nothing:
-the captions already carry the words, and the viewer now has the same information
-twice in two places, competing.
+The speaker is the default visual. A beat must earn the space it takes.
 
-**The test: could a viewer with the sound off learn something from this card that
-the captions do not already tell them?** If no, it is decoration — cut it or
-replace it with something that depicts.
+## The concrete-evidence test
 
-## What "depict" means
+Ask: does this show the actual object, process, interface, document, result, or
+physical action being discussed? If not, leave the speaker on screen.
 
-| The speaker says | Weak (retyped) | Strong (depicted) |
-| --- | --- | --- |
-| "it's a back-and-forth with the AI" | the words, big | a ping-pong rally animating between two paddles |
-| "it asks, I answer, we fix it together" | the words, big | a chat thread building bubble by bubble |
-| "it can take hours" | "HOURS" | a clock with hands sweeping while a checklist ticks |
-| "it writes better and faster than me" | the words, big | an editor window typing real code |
-| "my job is correct, precise, secure" | three words as chips | a diff: red removals, green fixes, then the chips |
-| "devs were never paid to just write code" | the sentence | a donut where coding is a 22% slice |
-| "less coding, more thinking" | two labels | before/after bars, 70% → 15% |
-| "take something someone wants → prove it works" | four lines | a pipeline diagram drawing itself |
+Do not turn an idea into a generic symbol. A target, robot hand, chess piece,
+scale, glowing orb, or miniature people may look polished and still explain
+nothing. This is especially true of generated 3D stills: they read as stock art
+and make a personal talking-head reel feel produced by a machine.
 
-Notice that several strong versions still contain text. That is fine. A chart
-label, a chat message, a code line, a legend — these are parts of a depicted
-object. The failure mode is specifically *the speaker's own sentence as typography*.
+Prefer, in order:
 
-Short kinetic type does earn its place in three places: the hook, one hero
-restatement at the turn, and the end card. Roughly three per reel, no more.
+1. **The face.** Most of the reel. Let delivery, gestures, captions and a small
+   punch-in carry the line.
+2. **Concrete process UI over the face.** A real-looking chat exchange, code diff,
+   marked-up plan, checklist, timeline, or before/after. It can contain text when
+   that text is part of the thing being demonstrated.
+3. **A compact factual overlay.** One number, label, quote, or object that makes a
+   clause easier to understand. Keep it local and clear of the whole head.
+4. **Moving B-roll.** Full-screen only when the moving footage directly shows the
+   thing being said: the actual app workflow, screen recording, grill flare-up,
+   hands performing the action, or a relevant location/action shot.
 
-## Pacing
+A generated still never earns full screen. `build` rejects it in `mode: full`.
+Full mode requires a local MP4/WebM in `broll.src`.
 
-- One beat per 4–7 s of speech. Faster feels frantic, slower feels like a slideshow.
-- Land `start` on a clause boundary taken from the transcript, never a round number.
-- No beat should sit visibly empty. If a card's first element animates in more than
-  ~0.8 s after the card appears, either move the card's `start` later or move the
-  first animation earlier. An empty plate on screen reads as a bug.
-- Content beats belong **above the speaker's head**, in the empty wall. Covering a
-  talking head's mouth is the most common self-inflicted wound in the format.
+## Text is not the enemy
 
-## Coherence
+Captions already transcribe the speech, so do not duplicate each sentence as a
+second headline. But process text is useful: chat messages, menu labels, edits,
+annotations, code, a selected option, or a crossed-out assumption. These show
+*how* something happens. Short kinetic type is still useful for the hook, one
+turn, or one payoff.
 
-Pick two or three motion patterns and reuse them. Enter with `pop` or `slide`,
-draw connectors with `draw`, and keep one accent colour as the through-line for
-the whole reel — it is what makes a series of clips look like one creator's work.
+## Face-first rhythm
 
-## Ordering the whole reel
+- Do not force a visual every 4-7 seconds. Silence in the graphics is pacing.
+- Keep roughly 65-80% of a typical reel on the unobstructed face.
+- Use a quick 3-5% punch-in at a new clause or emphasis, then return later. Avoid
+  constant breathing zooms.
+- Use overlays for 2-5 seconds, long enough to read once. Prefer a clean cut or
+  short 150-300ms entrance to elaborate card choreography.
+- Use full-screen moving B-roll sparingly, usually 1-3 seconds, and keep the
+  speaker's audio continuous under it.
+- Never cover the whole head, captions, eyes, mouth, or hands when the gesture is
+  part of the point. Never dim the person globally.
 
-The structure that travels furthest in short form:
+## Human visual language
 
-1. **Hook** (0–3 s). A claim that creates a question. Land it before anyone scrolls.
-2. **Turn** (3–8 s). The reason the hook is not what it seemed.
-3. **Body**. The actual substance, one idea per beat.
-4. **Payoff**. The reframe the whole thing was building to.
-5. **Open loop**. A question you explicitly defer. This is what earns a follow,
-   and it belongs on the end card as well as in the speech.
+- Neutral near-white paper and charcoal/black type for process panels.
+- One quiet accent chosen for meaning, not a five-colour theme on every beat.
+- Use the creator's real room, skin tones and clothing as the visual palette.
+- Prefer plain sans-serif captions, sentence case, and small phrase groups.
+- Shadows and rounded corners may separate an object from footage, but avoid
+  glossy 3D, neon glows, dark sci-fi stages, and repeated icon motifs.
+- Sound supports edits: a few restrained clicks/whooshes on actual transitions,
+  never a sound on every word.
+
+## Useful examples studied
+
+- Yap-style, face for the full reel, plain phrase captions and a single persistent
+  hook label: https://www.instagram.com/reel/DINg5l2xSSF/
+- Face-first tutorial with slow/quick punch-ins; full-screen is reserved for the
+  actual editor UI being demonstrated: https://www.instagram.com/reel/DavaMZEvKiU/
+- Talking-head edit breakdown using large phrase captions, deliberate zooms and
+  concrete timeline/audio demonstrations: https://www.instagram.com/reel/DbI8_fVoHYx/
+- Hebrew face-first reel with compact captions and no decorative cutaways:
+  https://www.instagram.com/reel/DafufCdMZ35/
+
+The yapping trend is not "no editing." Its edit hides itself: a direct-to-one-person
+performance, hard trims, readable captions, occasional reframing, and almost no
+visual element that competes with the person.

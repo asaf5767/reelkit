@@ -70,8 +70,8 @@ Agents: read `skills/reelkit/SKILL.md` first. It is the whole workflow.
 
 ## Image slots
 
-Any beat can declare an image prompt. `build` writes `visuals.json` with each
-slot's pixel box, aspect ratio and prompt. Generate to `public/images/<beatId>.png`,
+A compact beat can declare an image prompt. `build` writes `visuals.json` with each
+slot's pixel box, aspect ratio and prompt. Full-screen mode accepts moving B-roll only. Generate to `public/images/<beatId>.png`,
 re-run `build`, and the image replaces the drawn card. Skip it and the drawn card
 ships. Same plan, both paths. See `skills/reelkit/references/image-slots.md`.
 
