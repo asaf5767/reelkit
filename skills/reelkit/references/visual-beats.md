@@ -74,3 +74,19 @@ turn, or one payoff.
 The yapping trend is not "no editing." Its edit hides itself: a direct-to-one-person
 performance, hard trims, readable captions, occasional reframing, and almost no
 visual element that competes with the person.
+
+## Literal subjects before metaphors
+
+When the speaker names a concrete subject, a compact literal image of that subject
+can clarify the moment: show the grill when they say "grill." Do not replace it
+with an invented symbolic stand-in such as a target, robot hand, or scales. A
+literal image still has to leave the face and captions clear.
+
+## Motion overlays: attention with a job
+
+A moving overlay can earn space when its motion does useful editorial work: a
+circling arrow points to the exact UI region being discussed, a short GIF shows
+the named action, or a tracked mark follows the thing the viewer must notice.
+Treat these as an optional attention layer after the face, captions, and literal
+proof are working. Do not add ambient motion just to make a static decoration
+wiggle; the motion must direct attention or demonstrate the spoken point.

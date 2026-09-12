@@ -644,10 +644,16 @@ def k_image(cid, d, br, an, st, en):
     file was supplied the caller substitutes the placeholder body instead."""
     g = []
     cap = (f'<div id="{cid}-cap" class="imgcap" dir="{D}">{esc(d["caption"])}</div>' if d.get("caption") else "")
+    label = (f'<div id="{cid}-label" class="imglabel" dir="{D}">{kinetic(cid + "-label-text", d["label"], "imglabeltext", D)}</div>'
+             if d.get("label") else "")
     b = (f'<div class="stagewrap"><div id="{cid}-frame" class="imgframe {d.get("frame","soft")}">'
-         f'<img id="{cid}-img" src="images/{cid}.png" alt=""/></div>{cap}</div>')
+         f'<img id="{cid}-img" src="images/{cid}.png" alt=""/>{label}</div>{cap}</div>')
     g.append(an.pop(S(cid, cid + "-frame"), st + 0.10, 0.55, 0.86))
     g.append(an.kenburns(S(cid, cid + "-img"), st + 0.10, max(0.5, en - st - 0.3), 1.0, float(d.get("zoom", 1.08))))
+    if d.get("label"):
+        g.append(an.pop(S(cid, cid + "-label"), st + 0.36, 0.38, 0.72))
+        g.append(an.chars(S(cid, cid + "-label-text"), st + 0.42, 0.32, 0.035))
+        g.append(an.pulse(S(cid, cid + "-label"), st + 1.02, 0.16, 1.045, 1))
     if d.get("caption"):
         g.append(an.slide(S(cid, cid + "-cap"), st + 0.55, 0.42, dy=26))
     return b, g

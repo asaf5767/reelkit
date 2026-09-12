@@ -347,6 +347,11 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .imgframe img {{ width:100%;height:auto;display:block; }}
 {P} .imgcap {{ font-size:44px;font-weight:800;text-align:center;opacity:.92;
  text-shadow:0 4px 20px rgba(0,0,0,.8); }}
+{P} .imglabel {{ position:absolute;right:22px;top:22px;z-index:2;padding:11px 22px 13px;
+ border-radius:18px;background:rgba(9,11,17,.94);border:2px solid rgba(255,255,255,.20);
+ box-shadow:0 10px 30px rgba(0,0,0,.48);color:#FFFFFF; }}
+{P} .imglabeltext {{ font-size:43px;font-weight:900;line-height:1.05;white-space:nowrap;
+ text-shadow:0 3px 12px rgba(0,0,0,.55); }}
 {P} .imgbehind {{ position:absolute;inset:0;z-index:0;opacity:.55; }}
 {P} .imgbehind img {{ width:100%;height:100%;object-fit:cover;display:block; }}{canvas_css}
 {P} .missing {{ width:800px;border:3px dashed {A[4]};border-radius:28px;padding:40px;
@@ -543,7 +548,8 @@ def build(project):
             body, g = KINDS["image"](cid, {
                 "caption": img.get("caption") or beat.get("data", {}).get("caption"),
                 "frame": "bare" if img.get("alpha") else img.get("frame", "soft"),
-                "zoom": img.get("zoom", 1.08)}, br, an, st, en)
+                "zoom": img.get("zoom", 1.08),
+                "label": img.get("label")}, br, an, st, en)
         elif kind == "image" and not has_img:
             # honest placeholder: renders, lints, and screams in the preview
             p = esc((img or {}).get("prompt", "") or beat.get("intent", ""))
