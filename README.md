@@ -80,7 +80,7 @@ ships. Same plan, both paths. See `skills/reelkit/references/image-slots.md`.
 ```
 skills/reelkit/
   SKILL.md                 the workflow, and the hard rules
-  references/              plan schema, visual-beat doctrine, RTL, captions,
+  references/              plan schema, versioned plans/style DNA, visual-beat doctrine, RTL, captions,
                            image slots, audio, trimming, troubleshooting
   scripts/reelkit.py       sample / scaffold / cut / plan / build / verify / doctor
   scripts/verify.py        measured card geometry, face detection, collisions

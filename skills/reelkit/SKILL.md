@@ -97,6 +97,9 @@ check it.
 
 ## 3. Plan the beats
 
+Before authoring, choose a named versioned style-DNA template and keep cut-plan and graphics-plan histories independent. Review corrections use `{frame, note}` patches and per-render version numbers. See `references/versioned-plans.md`.
+
+
 Optional first pass — get a draft instead of an empty file:
 
 ```bash
