@@ -57,7 +57,9 @@ def author(project):
  # correction rather than another guess. Findings are [level, beat, message].
  vj=p/'verify.json'
  if vj.exists():
-  errs=[f for f in json.loads(vj.read_text()).get('findings',[]) if f and f[0]=='ERROR']
+  # findings are serialised as {level,id,message}; tuples are tolerated too
+  errs=[f for f in json.loads(vj.read_text()).get('findings',[])
+        if (f.get('level') if isinstance(f,dict) else (f or [None])[0])=='ERROR']
   if errs:
    req['findings']=errs; req['contract']+=' The previous plan failed the geometry gate; fix the listed beats.'
    pj=p/'plan.json'

@@ -23,6 +23,15 @@ HERE=Path(__file__).resolve().parent
 REELKIT=HERE/'reelkit.py'
 ASSETS=HERE/'assets.py'
 
+def finding(f):
+ """verify.json serialises findings as {level,id,message}. Read that shape, and
+ still accept the (level, id, message) tuple the checker builds internally, so a
+ consumer cannot be broken by which end of verify.py it happens to be reading."""
+ if isinstance(f,dict): return (f.get('level'),f.get('id'),f.get('message'))
+ if isinstance(f,(list,tuple)) and len(f)>=3: return (f[0],f[1],f[2])
+ return (None,None,str(f))
+
+
 def log(stage,msg): print(f'[worker] {stage}: {msg}',flush=True)
 
 def run(*cmd,check=True):
@@ -45,7 +54,7 @@ def gate(project,stage):
  if skipped:
   raise SystemExit(f'[worker] {stage}: verify could not measure {", ".join(skipped)} '
                    '(Playwright / OpenCV missing) - a gate that cannot run blocks delivery')
- errs=[f for f in v.get('findings',[]) if f and f[0]=='ERROR']
+ errs=[f for f in map(finding, v.get('findings',[])) if f[0]=='ERROR']
  if code!=0 or errs:
   for level,cid,msg in errs: log(stage,f'ERROR {cid}: {msg}')
   return False

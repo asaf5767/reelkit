@@ -91,4 +91,38 @@ class TranscribeDefaultAdapter(unittest.TestCase):
         self.assertEqual(assets.transcribe_command(self.c),'other --audio {audio}')
 
 
+class FindingsFormat(unittest.TestCase):
+    """verify.json serialises findings as {level,id,message}, not as arrays.
+
+    The gate read f[0] and crashed with KeyError on any finding - including a
+    harmless WARN, which should pass. Only running the worker in the container
+    surfaced it, because every project tried before that had zero findings.
+    """
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); self.p=Path(self.tmp.name)
+        self._real=worker.reelkit; self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(lambda: setattr(worker,'reelkit',self._real))
+
+    def stub(self,findings,code=0):
+        (self.p/'verify.json').write_text(json.dumps(
+            {'cardGeometry':True,'faceDetection':True,'beats':[],'findings':findings}))
+        worker.reelkit=lambda *a,**k: code
+
+    def test_warn_dict_does_not_block(self):
+        self.stub([{'level':'WARN','id':'b01','message':'no measurable content'}])
+        self.assertTrue(worker.gate(self.p,'test'))
+
+    def test_error_dict_blocks(self):
+        self.stub([{'level':'ERROR','id':'b02','message':'card covers the head'}],code=1)
+        self.assertFalse(worker.gate(self.p,'test'))
+
+    def test_tuple_form_is_still_understood(self):
+        self.stub([['ERROR','b02','card covers the head']],code=1)
+        self.assertFalse(worker.gate(self.p,'test'))
+
+    def test_finding_normalises_both_shapes(self):
+        self.assertEqual(worker.finding({'level':'ERROR','id':'b1','message':'m'}),('ERROR','b1','m'))
+        self.assertEqual(worker.finding(['ERROR','b1','m']),('ERROR','b1','m'))
+
+
 if __name__=='__main__': unittest.main()
