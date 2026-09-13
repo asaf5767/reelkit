@@ -9,8 +9,11 @@ Contract: write a JSON array of {text,start,end}, one entry per WORD. Callers
 reject segment-level output; every caption line and beat boundary is derived
 from these times.
 """
-import argparse,json,os,subprocess,tempfile
+import argparse,json,os,subprocess,sys,tempfile
 from pathlib import Path
+
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from reelkit import HF  # noqa: E402  - one pinned renderer version for the whole repo
 
 def main():
  ap=argparse.ArgumentParser();ap.add_argument('--audio',required=True);ap.add_argument('--out',required=True)
@@ -18,7 +21,7 @@ def main():
  with tempfile.TemporaryDirectory() as d:
   # HyperFrames writes transcript.json beside -d; keep it off the project dir so
   # a failed run cannot leave a half-written transcript where the pipeline looks.
-  cmd=['npx','hyperframes@latest','transcribe',a.audio,'-d',d,'--json',
+  cmd=['npx','-y',HF,'transcribe',a.audio,'-d',d,'--json',
        '--model',a.model,'--language',a.lang,'--timeout','1800000']
   r=subprocess.run(cmd,capture_output=True,text=True)
   src=Path(d)/'transcript.json'

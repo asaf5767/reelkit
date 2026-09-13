@@ -14,7 +14,7 @@ visual beats and 91 caption lines over untouched footage.
 S=../../scripts/reelkit.py
 python3 $S scaffold --project . --video /path/to/raw.mp4 --upscale
 python3 $S build --project .
-npx hyperframes@latest check public
+npx hyperframes@0.8.36 check public
 ```
 
 ## What this example demonstrates

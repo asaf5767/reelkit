@@ -25,7 +25,7 @@ compensating for the leading silence several stock files carry.
 ```bash
 git clone https://github.com/asaf5767/reelkit
 cd reelkit
-npx hyperframes@latest skills update talking-head-recut   # render deps + gsap
+npx hyperframes@0.8.36 skills update talking-head-recut   # render deps + gsap
 python3 skills/reelkit/scripts/reelkit.py doctor
 ```
 
@@ -37,7 +37,7 @@ Or install as a Claude plugin from `.claude-plugin/marketplace.json`.
 S=skills/reelkit/scripts/reelkit.py
 python3 $S sample --project videos/sample   # generates a 12s synthetic clip + plan
 python3 $S build --project videos/sample
-cd videos/sample && npx hyperframes@latest check public && cd ../..
+cd videos/sample && npx hyperframes@0.8.36 check public && cd ../..
 python3 $S verify --project videos/sample
 ```
 
@@ -54,16 +54,16 @@ the speaker). Supply your own; none ships with the repo.
 ```bash
 S=skills/reelkit/scripts/reelkit.py
 python3 $S scaffold --project videos/myreel --video raw.mp4 --upscale
-npx hyperframes@latest transcribe videos/myreel/audio.mp3 -d videos/myreel \
+npx hyperframes@0.8.36 transcribe videos/myreel/audio.mp3 -d videos/myreel \
     --json --model large-v3 --language he
 # fix transcript.json
 python3 $S plan --project videos/myreel --lang he      # optional heuristic draft
 # review plan.draft.json, replace the TODOs, rename to plan.json
 python3 $S build --project videos/myreel
-cd videos/myreel && npx hyperframes@latest check public
+cd videos/myreel && npx hyperframes@0.8.36 check public
 python3 $S verify --project videos/myreel        # card-over-face, captions, off-canvas
-npx hyperframes@latest snapshot public --at "3,12,20,30" --no-end   # look at it
-npx hyperframes@latest render public -o output.mp4 --fps 30
+npx hyperframes@0.8.36 snapshot public --at "3,12,20,30" --no-end   # look at it
+npx hyperframes@0.8.36 render public -o output.mp4 --fps 30
 ```
 
 Agents: read `skills/reelkit/SKILL.md` first. It is the whole workflow.

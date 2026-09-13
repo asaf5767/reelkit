@@ -23,6 +23,18 @@ from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
+
+# The renderer is pinned, never resolved as @latest. This is a correctness fix
+# first: @latest can move between the preview pass and the full pass of the same
+# reel, which silently breaks the "identical command, identical inputs = equally
+# valid render" basis the segment reuse cache rests on. Measured warm, pinning
+# saves no time - @latest and an exact version both cost ~1.2s of node/npx
+# startup - so the registry lookup only shows up on a cold npx cache, which is
+# every fresh Kaggle kernel and every fresh container.
+# Upgrade procedure is in SKILL.md - it is a deliberate, tested bump, not a
+# side effect of somebody rendering on a Tuesday.
+HF_VERSION = "0.8.36"
+HF = f"hyperframes@{HF_VERSION}"
 DEFAULT_BRAND = {
     "name": "default",
     "accents": ["#2563EB", "#0F766E", "#7C3AED", "#15803D", "#BE123C"],
@@ -452,7 +464,7 @@ def fit_pass(project, plan, W, H, already):
         return {}, []
     times = {b["id"]: [b["start"] + (b["end"] - b["start"]) * f for f in (0.2, 0.5, 0.8)]
              for b in beats}
-    faces = detect_faces(vid, times, W, H)
+    faces = detect_faces(vid, times, W, H, cache_dir=project)
     if not faces:
         return {}, []
     out, blocked = {}, []
@@ -561,7 +573,7 @@ def build(project, _layouts=None, _pass=1):
     if splits:
         ftimes = {b["id"]: [float(b["start"]) + (float(b["end"]) - float(b["start"])) * f
                             for f in (0.2, 0.5, 0.8)] for b in splits}
-        faces = detect_faces(vid, ftimes, W, H)
+        faces = detect_faces(vid, ftimes, W, H, cache_dir=project)
         if faces:
             changed = False
             for b in splits:
@@ -992,7 +1004,7 @@ def sample_project(project, fps, width, height):
     print("reelkit: transcript.json and plan.json are canned fixtures (the synthetic "
           "audio has no speech, so there is nothing to transcribe)")
     print(f"reelkit: next -> python3 {s} build --project {project}")
-    print(f"            (cd {project} && npx hyperframes@latest check public)")
+    print(f"            (cd {project} && npx {HF} check public)")
     print(f"            python3 {s} verify --project {project}")
     print("note: face detection finds no head in a gradient - that part of "
           "verify only exercises on real footage")
@@ -1656,7 +1668,7 @@ def scaffold(project, video, fps, width, height, upscale):
                     shutil.copy2(src, os.path.join(pub, "vendor", "gsap.min.js"))
             if not os.path.exists(os.path.join(pub, "vendor", "gsap.min.js")):
                 die("gsap.min.js not found. Either install the HyperFrames skills "
-                    "(`npx hyperframes skills update talking-head-recut`) or "
+                    f"(`npx {HF} skills update talking-head-recut`) or "
                     "`npm i gsap` and copy dist/gsap.min.js into <project>/public/vendor/.")
 
     sw, sh_ = probe_wh(video)
@@ -1748,7 +1760,7 @@ def container_problems(path):
 def export_deliverable(project, inp, out):
     src = inp if os.path.isabs(inp) else os.path.join(project, inp)
     if not os.path.exists(src):
-        die(f"{src} not found - render first (`npx hyperframes render public -o {inp}`)")
+        die(f"{src} not found - render first (`npx {HF} render public -o {inp}`)")
     dst = out if os.path.isabs(out) else os.path.join(project, out)
     v, a = _stream_info(src)
     if v.get("codec_name") == "h264" and v.get("pix_fmt") == "yuv420p" \
@@ -1959,7 +1971,7 @@ def render_project(project, output, workers=None, preview=False, checkpoint_dir=
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     raw = out + ".rendering.mp4"
     render_fps = min(fps, 10) if preview else fps
-    cmd = ["npx", "-y", "hyperframes@latest", "render", public,
+    cmd = ["npx", "-y", HF, "render", public,
            "-o", raw, "--fps", str(render_fps), "--workers", str(nworkers),
            "--quality", "draft" if preview else "standard",
            "--browser-timeout", "90", "--player-ready-timeout", "90000",
@@ -1995,7 +2007,7 @@ def doctor():
     hf = os.path.expanduser("~/.claude/skills/talking-head-recut/assets/vendor/gsap.min.js")
     print(f"  {'OK ' if (os.path.exists(gs) or os.path.exists(hf)) else 'MISS'} gsap     "
           f"{'vendored' if os.path.exists(gs) else ('via HyperFrames skill' if os.path.exists(hf) else 'not found')}")
-    r = sh("npx -y hyperframes@latest --version")
+    r = sh(f"npx -y {HF} --version")
     print(f"  {'OK ' if r.returncode == 0 else 'MISS'} hyperframes {r.stdout.strip() or r.stderr.strip()[:60]}")
     try:
         import playwright  # noqa: F401

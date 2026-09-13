@@ -10,7 +10,10 @@ Contract rules that MUST hold (HyperFrames lint + RTL safety):
   * dir="rtl" goes on individual TEXT elements, never on <html>
   * words are wrapped in .wd (white-space:nowrap) so they never break mid-word
 """
-import html, os, statistics
+import html, os, statistics, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mcache  # noqa: E402
 
 def esc(s):
     return html.escape(str(s), quote=True)
@@ -282,39 +285,67 @@ def canvas_image_box(canvas_h, fit, direction, W):
     return [CANVAS_PAD_X, y, inner_w, max(1, canvas_h - CANVAS_PAD_B - y)]
 
 
-def detect_faces(video, times, W, H):
+def detect_faces(video, times, W, H, cache_dir=None):
     """Median head box per key across sampled timestamps, in canvas pixels.
     Shared by the builder (face-aware split sizing) and verify (enforcement)
     so both reason about the same head. Returns {} when cv2 is unavailable -
-    callers treat that as "no information", never as "no head"."""
+    callers treat that as "no information", never as "no head".
+
+    With cache_dir set, a key whose footage bytes and sample timestamps are
+    unchanged is served from mcache and the video is not decoded for it. The
+    cv2 import stays ABOVE the cache: a hit must never stand in for the
+    dependency the gate needs. Only detected heads are cached - a key that
+    found no face is re-scanned every pass, so a stale cache can never erase a
+    head a card has to clear (mcache rules 2 and 3).
+    """
     try:
         import cv2
     except Exception:
         return {}
-    casc = cv2.CascadeClassifier(
-        os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"))
-    cap = cv2.VideoCapture(video)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    vw = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or W
-    vh = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or H
-    sx, sy = W / vw, H / vh
-    out = {}
+
+    # Scope: the footage and the canvas, shared by every key. Key: the sampled
+    # timestamps. Re-cut the video and the whole section is dropped at once.
+    cache = mcache.load(cache_dir) if cache_dir else {}
+    scope = mcache.sha("faces", mcache.file_id(video), W, H) if cache_dir else ""
+    keys = {k: mcache.sha(",".join(f"{float(t):.4f}" for t in ts))
+            for k, ts in times.items()} if cache_dir else {}
+
+    out, todo = {}, {}
     for key, ts in times.items():
-        boxes = []
-        for t in ts:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * fps))
-            ok, frame = cap.read()
-            if not ok:
-                continue
-            g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            g = cv2.equalizeHist(g)
-            f = casc.detectMultiScale(g, 1.15, 6, minSize=(int(vw * 0.10), int(vw * 0.10)))
-            if len(f):
-                x, y, w, h = max(f, key=lambda b: b[2] * b[3])
-                boxes.append((x * sx, y * sy, w * sx, h * sy))
-        if boxes:
-            out[key] = [round(statistics.median([b[i] for b in boxes]), 1) for i in range(4)]
-    cap.release()
+        hit = mcache.get(cache, "faces", scope, keys[key]) if cache_dir else None
+        if hit:
+            out[key] = hit
+        else:
+            todo[key] = ts
+
+    if todo:
+        casc = cv2.CascadeClassifier(
+            os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"))
+        cap = cv2.VideoCapture(video)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        vw = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or W
+        vh = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or H
+        sx, sy = W / vw, H / vh
+        for key, ts in todo.items():
+            boxes = []
+            for t in ts:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(t * fps))
+                ok, frame = cap.read()
+                if not ok:
+                    continue
+                g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                g = cv2.equalizeHist(g)
+                f = casc.detectMultiScale(g, 1.15, 6, minSize=(int(vw * 0.10), int(vw * 0.10)))
+                if len(f):
+                    x, y, w, h = max(f, key=lambda b: b[2] * b[3])
+                    boxes.append((x * sx, y * sy, w * sx, h * sy))
+            if boxes:
+                out[key] = [round(statistics.median([b[i] for b in boxes]), 1) for i in range(4)]
+        cap.release()
+
+    if cache_dir:
+        mcache.replace(cache_dir, "faces", scope,
+                       {keys[k]: v for k, v in out.items()})
     return out
 
 

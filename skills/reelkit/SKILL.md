@@ -34,10 +34,42 @@ image-slot contract. If HyperFrames is missing, nothing renders.
 ## 0. Prerequisites
 
 ```bash
-npx hyperframes@latest --version          # must succeed
-npx hyperframes@latest skills update talking-head-recut   # once, provides gsap + render deps
+npx hyperframes@0.8.36 --version          # must succeed
+npx hyperframes@0.8.36 skills update talking-head-recut   # once, provides gsap + render deps
 python3 scripts/reelkit.py doctor         # ffmpeg, ffprobe, node, fonts, gsap, verify deps
 ```
+
+### The renderer version is pinned, not `@latest`
+
+`hyperframes@0.8.36` is the one renderer this pipeline is tested against, and
+every caller names that exact version - `reelkit.py` (`HF_VERSION`), the
+transcribe adapter, the Dockerfile's `ARG HF_VERSION`, and the commands above.
+
+Pinning is a correctness fix, not a speed one. Measured warm, `@latest` and an
+exact version both cost ~1.2s per invocation - that is node and npx starting
+up, and pinning does not remove it. The registry lookup only costs extra on a
+cold npx cache, which is every fresh Kaggle kernel and every fresh container,
+but it is not a per-invocation saving on a warm box.
+
+The reason that matters is reproducibility: `@latest` can move between the
+preview pass and the full pass of the same reel - which breaks the "identical
+command, identical inputs = equally valid render" basis the segment reuse cache
+rests on, silently, with a green exit code.
+
+**To upgrade** (a deliberate, tested bump - never a drive-by edit):
+
+1. `npm view hyperframes version` - see what is actually published.
+2. Change `HF_VERSION` in `scripts/reelkit.py`. That is the single source of
+   truth; `tests/test_hf_pin.py` fails if any other caller disagrees with it.
+3. Update the `ARG HF_VERSION` default in the `Dockerfile`, the version in the
+   commands in this file and `README.md`, and rebuild the image. The build
+   cross-checks itself against `reelkit.py` and fails on a mismatch.
+4. Re-render a real reel end to end and compare it against the previous render.
+   A renderer bump is a pixel change until proven otherwise, so this is the step
+   that makes the bump real - the unit tests only prove the pin is consistent.
+5. Delete stale segment sidecars, or expect a full re-render: `segment_key()`
+   hashes the pipeline scripts, so bumping `HF_VERSION` already invalidates
+   every cached segment. That is correct, not a bug.
 
 On a slow or headless machine every `snapshot`/`render` call needs:
 
@@ -80,7 +112,7 @@ that arrived over WhatsApp is typically 480×850 and worth re-requesting.
 ## 2. Transcribe
 
 ```bash
-npx hyperframes@latest transcribe videos/myreel/audio.mp3 -d videos/myreel \
+npx hyperframes@0.8.36 transcribe videos/myreel/audio.mp3 -d videos/myreel \
   --json --model large-v3 --language he --timeout 1800000
 ```
 
@@ -158,7 +190,7 @@ Details, prompt-writing guidance and the transparency rules:
 ## 6. Validate, verify, then look at it
 
 ```bash
-cd videos/myreel && npx hyperframes@latest check public
+cd videos/myreel && npx hyperframes@0.8.36 check public
 ```
 
 Fix every error before rendering. The linter catches real defects — it is the
@@ -180,7 +212,7 @@ speaker on purpose, so overlap there is not a defect. See `references/verify.md`
 Then **look at actual frames** for the things no checker can judge:
 
 ```bash
-npx hyperframes@latest snapshot public --at "3.4,12,20,27,54,63" --timeout 60000 --no-end
+npx hyperframes@0.8.36 snapshot public --at "3.4,12,20,27,54,63" --timeout 60000 --no-end
 ```
 
 Read `public/snapshots/contact-sheet.jpg` and check, honestly:
@@ -215,7 +247,7 @@ Worker precedence is `--workers`, then `REELKIT_RENDER_WORKERS`, then
 `PRODUCER_MAX_WORKERS`, then auto. Auto starts at roughly half the available CPU
 cores, capped at 8. Each worker launches Chrome and uses about 256 MB; an explicit
 count bypasses HyperFrames' auto-sizing, so oversubscribing a small box is slower,
-not faster. Benchmark the actual host with `npx hyperframes@latest benchmark public`.
+not faster. Benchmark the actual host with `npx hyperframes@0.8.36 benchmark public`.
 Two workers are usually the useful ceiling on a small 2-4 core box. Four workers on
 a sufficiently large host are expected to approach 3x sequential throughput; eight
 can approach 6-7x only when CPU, RAM and storage sustain them. These are targets to
