@@ -201,7 +201,7 @@ def prepare(src, wd, plan, transcript, fps, bounds, i, st, en):
     json.dump(tw,open(seg/'transcript.json','w'),ensure_ascii=False,indent=2)
     media=pub/'input-video.mp4'
     if not valid_video(media,round((en-st)*fps)):
-        tmp=str(media)+'.tmp.mp4';run(['ffmpeg','-y','-v','error','-i',src/'public/input-video.mp4','-filter_complex',f'[0:v]trim=start={st}:end={en},setpts=PTS-STARTPTS,fps={fps}[v];[0:a]atrim=start={st}:end={en},asetpts=PTS-STARTPTS[a]','-map','[v]','-map','[a]','-c:v','libx264','-preset','veryfast','-crf','17','-g',fps,'-keyint_min',fps,'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k',tmp]);os.replace(tmp,media)
+        tmp=str(media)+'.tmp.mp4';run(['ffmpeg','-y','-v','error','-i',src/'public/input-video.mp4','-filter_complex',f'[0:v]trim=start={st}:end={en},setpts=PTS-STARTPTS,fps={fps}[v];[0:a]atrim=start={st}:end={en},asetpts=PTS-STARTPTS[a]','-map','[v]','-map','[a]','-map_chapters','-1','-c:v','libx264','-preset','veryfast','-crf','17','-g',fps,'-keyint_min',fps,'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k',tmp]);os.replace(tmp,media)
 
 
 def main():
@@ -251,7 +251,7 @@ def main():
     concat=wd/'concat.txt';concat.write_text(''.join("file '%s'\n"%s['output'].replace("'","'\\''") for s in targets))
     # Segment AAC carries encoder priming at every boundary. Discard it: join only
     # rendered video and mux the original staged audio once, preserving exact sync.
-    video=wd/'joined-video.mp4';run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',concat,'-map','0:v:0','-an','-c','copy',video])
+    video=wd/'joined-video.mp4';run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',concat,'-map','0:v:0','-map_chapters','-1','-an','-c','copy',video])
     # The audio mix stage owns the delivered audio. This used to be a straight
     # `-map 1:a:0` from the source, which kept sync perfectly and silently threw
     # away every SFX cue the build had placed - measured at two cue timestamps on

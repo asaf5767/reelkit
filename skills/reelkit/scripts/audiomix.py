@@ -169,6 +169,7 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
     if fc is None:
         cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_in, "-i", source_audio,
                "-map", "0:v:0", "-map", "1:a:0", "-dn", "-sn", "-write_tmcd", "0",
+               "-map_chapters", "-1",
                "-c", "copy", "-shortest", out]
         log("reelkit audio: no cues and no voice chain - straight mux")
     else:
@@ -176,7 +177,7 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
         for c in cue_list:
             cmd += ["-i", c["path"]]
         cmd += ["-filter_complex", fc, "-map", "0:v:0", "-map", label,
-                "-dn", "-sn", "-write_tmcd", "0",
+                "-dn", "-sn", "-write_tmcd", "0", "-map_chapters", "-1",
                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                 "-shortest", out]
         log(f"reelkit audio: {len(cue_list)} cue(s)"

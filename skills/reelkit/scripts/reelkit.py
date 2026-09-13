@@ -1080,8 +1080,11 @@ def cut_video(src, dest, keeps, fps):
                      f"[0:a]atrim={a}:{b},asetpts=PTS-STARTPTS[a{i}]")
         maps += f"[v{i}][a{i}]"
     fc = ";".join(parts) + f";{maps}concat=n={len(segs)}:v=1:a=1[v][a]"
+    # -map_chapters -1: a phone source can carry chapters (so can an exported
+    # music-tool render), they are global metadata that no -map touches, and the
+    # mp4 muxer writes them out as a bin_data track further down the pipeline.
     cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-           "-r", str(fps), "-c:v", "libx264", "-crf", "17", "-preset", "medium",
+           "-map_chapters", "-1", "-r", str(fps), "-c:v", "libx264", "-crf", "17", "-preset", "medium",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", dest, "-loglevel", "error"]
     r = sh(cmd)
     if r.returncode != 0 or not os.path.exists(dest):
@@ -1311,6 +1314,47 @@ def sfx_lead_silence(path):
     return min(1.0, float(end.group(1)))
 
 
+def chapters(path):
+    """Chapter titles embedded in a media file, or []."""
+    r = sh(["ffprobe", "-v", "error", "-print_format", "json", "-show_chapters", path])
+    try:
+        return [c.get("tags", {}).get("title", "") for c in
+                json.loads(r.stdout).get("chapters", [])]
+    except Exception:
+        return []
+
+
+def strip_chapters(path):
+    """Rewrite `path` chapter-free, in place. Returns the titles it removed.
+
+    Chapters are GLOBAL metadata, not streams, so `-map`, `-dn` and `-sn` never
+    touch them: a cue carrying one rides through every mux that takes it as an
+    input, and the MP4 muxer then materialises it as a `bin_data` track in the
+    deliverable. That is the leak the container audit caught on Kaggle - the
+    three bundled whoosh files each carry an Ableton export residue chapter
+    ("Tempo: 120.0"). Every mux now passes `-map_chapters -1`; stripping on
+    ingest kills the source of it as well, for libraries we do not control
+    (media-use, a custom sfxDir).
+
+    Stream copy, so it costs milliseconds and changes no audio.
+    """
+    titles = chapters(path)
+    if not titles:
+        return []
+    tmp = path + ".nochap.tmp" + os.path.splitext(path)[1]
+    r = sh(["ffmpeg", "-y", "-v", "error", "-i", path,
+            "-map_chapters", "-1", "-map_metadata", "-1", "-c", "copy", tmp])
+    if r.returncode != 0 or not os.path.exists(tmp):
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        die(f"sfx asset {os.path.basename(path)} carries chapter metadata "
+            f"({', '.join(t for t in titles if t) or 'untitled'}) and it could "
+            f"not be stripped:\n{r.stderr[-600:]}\nChapters become a bin_data "
+            "track in the deliverable and fail the container audit.")
+    os.replace(tmp, path)
+    return titles
+
+
 def sfx_duration(sdir, name, fname):
     man = os.path.join(sdir, "manifest.json")
     if os.path.exists(man):
@@ -1495,6 +1539,10 @@ def resolve_sfx(plan, pub, dur, an):
             else:
                 dst = os.path.join(pub, "sfx", f"{c['name']}.mp3")
                 shutil.copy2(src, dst)
+                gone = strip_chapters(dst)
+                if gone:
+                    print(f"reelkit: stripped {len(gone)} chapter(s) from sfx "
+                          f"'{c['name']}' on ingest")
                 files[c["name"]] = (f"{c['name']}.mp3",
                                     sfx_duration(from_dir, c["name"], f"{c['name']}.mp3"),
                                     sfx_gain(dst, float(plan.get("audio", {}).get("sfxTargetDb", -11.0))),
@@ -1807,6 +1855,16 @@ def container_problems(path):
     # deliverable. A phone source can carry a timecode or telemetry data track,
     # and a `-c copy` without explicit maps carries it all the way through - it
     # survived every gate because nothing was looking for it.
+    # Chapters are global metadata rather than streams, so they survive -map,
+    # -dn and -sn; the MP4 muxer then writes them out as a bin_data track. Name
+    # them explicitly, because "unexpected bin_data stream" sends you looking
+    # for a stream that was never there.
+    chaps = chapters(path)
+    if chaps:
+        probs.append(("ERROR", f"{len(chaps)} chapter(s) embedded in the container "
+                               f"({', '.join(t for t in chaps if t) or 'untitled'}) - "
+                               "they surface as a bin_data track on phones; mux with "
+                               "`-map_chapters -1`"))
     extra = _extra_streams(path)
     if extra:
         kinds = ", ".join(sorted(extra))
@@ -1833,6 +1891,7 @@ def export_deliverable(project, inp, out):
         # keeps a silent source working rather than failing on a missing stream.
         cmd = ["ffmpeg", "-y", "-i", src,
                "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+               "-map_chapters", "-1",
                "-c", "copy", "-movflags", "+faststart",
                "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1",
                dst, "-loglevel", "error"]
@@ -1840,6 +1899,7 @@ def export_deliverable(project, inp, out):
     else:
         cmd = ["ffmpeg", "-y", "-i", src,
                "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+               "-map_chapters", "-1",
                "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-profile:v", "high",
                "-pix_fmt", "yuv420p", "-color_primaries", "1", "-color_trc", "1",
                "-colorspace", "1", "-movflags", "+faststart",
@@ -1868,6 +1928,7 @@ def export_deliverable(project, inp, out):
         plog = dst + ".passlog"
         base = ["ffmpeg", "-y", "-i", dst,
                 "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+               "-map_chapters", "-1",
                 "-c:v", "libx264", "-preset", "slow",
                 "-b:v", f"{vkbps}k", "-pix_fmt", "yuv420p", "-passlogfile", plog,
                 "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1"]
