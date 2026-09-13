@@ -20,8 +20,16 @@ environment at runtime (`fal_adapter.py` reads `FAL_KEY`).
 
 An adapter is any executable that accepts the flags and honours the contract.
 `whisper_adapter.py` (local Whisper via the HyperFrames CLI) and `fal_adapter.py`
-(fal.ai images) are the references. A hosted adapter for another vendor is a
-sibling script with the same flags:
+(fal.ai images) are the references.
+
+**transcribe has a bundled default.** With `REELKIT_TRANSCRIBE_CMD` unset,
+`assets.py` runs the script named by `transcribe.defaultAdapter` in
+`providers.json`, so a clean checkout transcribes with no key and no config. The
+env var overrides it. The other two seams have no default: there is nothing
+sensible to fall back to for a paid image model, and a plan author that silently
+picked a vendor would be worse than an error.
+
+A hosted adapter for another vendor is a sibling script with the same flags:
 
 ```bash
 export REELKIT_TRANSCRIBE_CMD='python3 skills/reelkit/scripts/whisper_adapter.py \
@@ -49,8 +57,7 @@ All three seams are content-addressed, so a re-render never re-spends:
 - transcribe - keyed on `sha256(audio) + model + language`, recorded in `transcript-ledger.json`
 - image - keyed on `prompt + box + alpha + provider + model`, recorded in `asset-ledger.json`
 
-A cached transcript means the adapter is optional on re-runs; `assets.py
-transcribe` only demands `REELKIT_TRANSCRIBE_CMD` when the cache misses.
+A cached transcript means no adapter runs at all on re-runs.
 
 ## Images are an upgrade, not a dependency
 

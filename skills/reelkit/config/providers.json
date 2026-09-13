@@ -6,7 +6,8 @@
     "model": "large-v3",
     "language": "he",
     "granularity": "word",
-    "cache": "content-addressed"
+    "cache": "content-addressed",
+    "defaultAdapter": "whisper_adapter.py"
   },
   "planAuthor": {
     "adapter": "command",

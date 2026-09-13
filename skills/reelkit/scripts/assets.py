@@ -7,7 +7,7 @@ Provider commands are explicit adapters, not hidden network calls:
   REELKIT_IMAGE_GENERATOR_CMD='fal-adapter --prompt {prompt} --out {output} --width {width} --height {height}'
 Once generated, assets and hashes are cached in the project checkpoint. Re-renders never call providers.
 """
-import argparse,hashlib,json,os,shlex,subprocess,tempfile
+import argparse,hashlib,json,os,shlex,subprocess,sys,tempfile
 from pathlib import Path
 
 def sha(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
@@ -24,6 +24,14 @@ def words_are_word_level(words):
  language carry no internal space, so a transcript whose entries do is segments."""
  spaced=sum(1 for w in words if ' ' in w['text'].strip())
  return spaced <= max(1,int(0.2*len(words)))
+def transcribe_command(c):
+ """The env var overrides; otherwise the bundled adapter runs, so a clean
+ checkout transcribes with no key, no config and no network beyond npx."""
+ env=os.getenv(c['commandEnv'])
+ if env: return env
+ script=Path(__file__).parent/c.get('defaultAdapter','whisper_adapter.py')
+ if not script.exists(): raise SystemExit(f"no {c['commandEnv']} and bundled adapter {script} is missing")
+ return f'{shlex.quote(sys.executable)} {shlex.quote(str(script))} --audio {{audio}} --out {{out}} --lang {{lang}} --model {{model}}'
 def transcribe(project):
  p=Path(project); audio=p/'audio.mp3'
  if not audio.exists(): raise SystemExit(f'{audio} missing - run `reelkit.py scaffold` first')
@@ -33,9 +41,7 @@ def transcribe(project):
  cached=cache/f'transcript-{key}.json'
  if cached.exists(): status='cache-hit'
  else:
-  adapter=os.getenv(c['commandEnv'])
-  if not adapter: raise SystemExit(f"{c['commandEnv']} is required to transcribe (no cached transcript for this audio/model)")
-  command(adapter,{'audio':audio,'out':cached,'lang':lang,'model':model}); status='transcribed'
+  command(transcribe_command(c),{'audio':audio,'out':cached,'lang':lang,'model':model}); status='transcribed'
  words=json.loads(cached.read_text())
  if isinstance(words,dict): words=words.get('words') or words.get('segments') or []
  if not words: raise SystemExit('transcribe adapter returned no words')

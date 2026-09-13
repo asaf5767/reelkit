@@ -7,7 +7,7 @@ Covers the transcript contract (segment-level output destroys every downstream
 time) and the worker's fail-closed gate (an ERROR blocks, and so does a gate
 that could not measure). Stdlib only; no provider is called.
 """
-import json,sys,tempfile,unittest
+import json,os,sys,tempfile,unittest
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'skills/reelkit/scripts'))
@@ -66,6 +66,29 @@ class FailClosedGate(unittest.TestCase):
         worker.reelkit=lambda *a,**k: 0
         with self.assertRaises(SystemExit) as e: worker.gate(self.p,'test')
         self.assertIn('no verify.json',str(e.exception))
+
+
+class TranscribeDefaultAdapter(unittest.TestCase):
+    """A clean checkout must transcribe with no key and no config (PR #1 review)."""
+
+    def setUp(self):
+        self.c=assets.cfg()['transcribe']
+        self._env=os.environ.pop('REELKIT_TRANSCRIBE_CMD',None)
+        if self._env is not None:
+            self.addCleanup(os.environ.__setitem__,'REELKIT_TRANSCRIBE_CMD',self._env)
+
+    def test_falls_back_to_bundled_adapter(self):
+        cmd=assets.transcribe_command(self.c)
+        self.assertIn(self.c['defaultAdapter'],cmd)
+        for ph in ('{audio}','{out}','{lang}','{model}'): self.assertIn(ph,cmd)
+
+    def test_bundled_adapter_exists(self):
+        self.assertTrue((Path(assets.__file__).parent/self.c['defaultAdapter']).exists())
+
+    def test_env_overrides_default(self):
+        os.environ['REELKIT_TRANSCRIBE_CMD']='other --audio {audio}'
+        self.addCleanup(os.environ.pop,'REELKIT_TRANSCRIBE_CMD',None)
+        self.assertEqual(assets.transcribe_command(self.c),'other --audio {audio}')
 
 
 if __name__=='__main__': unittest.main()
