@@ -18,6 +18,7 @@ authors deserve the credit.
 | [Impact Sounds](https://kenney.nl/assets/impact-sounds) | Kenney | CC0 1.0 | `License.txt` inside the download |
 | [UI Audio](https://kenney.nl/assets/ui-audio) | Kenney | CC0 1.0 | `License.txt` inside the download |
 | [Swishes Sound Pack](https://opengameart.org/content/swishes-sound-pack) | artisticdude | CC0 1.0 | OpenGameArt licence field (single entry, CC0) |
+| [Riser sound effect short](https://freesound.org/people/syntheffects/sounds/685256/) | syntheffects | CC0 1.0 | Freesound sound page - only CC link is the CC0 dedication |
 
 Kenney's licence texts are preserved verbatim under `licenses/`. The Swishes pack
 ships no licence file, so its dedication is recorded in
@@ -51,6 +52,7 @@ the levels here are the source levels.
 | key-press | switch1.ogg |
 | error | error_001.ogg |
 | glitch-1/2/3 | glitch_001/002/003.ogg |
+| riser | 685256 (trimmed, see below) |
 
 Cues were chosen by measurement, not by filename alone - duration, peak and
 spectral centroid. `impact-bass-2` carries 99% of its energy below 250 Hz, which
@@ -58,13 +60,24 @@ is what makes it read as a soft low hit under a data reveal; `pop` and `ping` si
 around 3 kHz; the swishes are 0.10-0.23 s, short enough to land on a beat
 entrance without smearing into the speech.
 
+## The riser, and one caveat worth reading
+
+`riser` came from Freesound rather than the game-asset libraries, which carry no
+cinematic transitions at all. Eight CC0 candidates were checked on their own
+pages and measured; this one was chosen because its energy builds monotonically
+over the 1.4 s before its peak (+11.6 dB) and then cuts off hard, which is what a
+riser into an edit has to do. It is trimmed to the 1.53 s leading into that peak,
+so the climax lands on the beat the placer aims at.
+
+**It is a transcode, not the master.** Freesound gates original files behind an
+account; the file here is the high-quality preview its public embed player
+streams. CC0 places no restriction on that, and for a ~1.5 s cue that sits under
+speech and is peak-normalised at render time the difference is small - but it is
+a double MP3 encode, and anyone with a Freesound account can replace it with the
+master at the same path and update `manifest.json`.
+
 ## Not covered
 
-**`riser`** has no CC0 source. The auto-cue placer emits one riser into the final
-beat, and no verified CC0 riser was found on Kenney or OpenGameArt - both are
-game-asset libraries, strong on UI and impacts, empty on cinematic transitions.
-That one cue still falls through to the synthesised stand-in. Dropping in a
-licence-clean riser named `riser.mp3` here is all it takes to finish the set.
-
-`typing` is likewise unmapped: it is a run of keystrokes rather than a single
-transient, and mapping one keypress to it would have been wrong.
+`typing` is unmapped: it is a run of keystrokes rather than a single transient,
+and mapping one keypress to it would have been wrong. It falls through to the
+synthesised stand-in, as does any cue name added to the placer later.

@@ -103,6 +103,14 @@
   "source": "select_001.ogg",
   "url": "https://kenney.nl/assets/interface-sounds"
  },
+ "riser": {
+  "author": "syntheffects",
+  "duration": 1.567,
+  "license": "CC0 1.0",
+  "pack": "freesound-685256",
+  "source": "685256__syntheffects__riser-sound-effect-short.mp3",
+  "url": "https://freesound.org/people/syntheffects/sounds/685256/"
+ },
  "sparkle": {
   "author": "Kenney",
   "duration": 0.313,

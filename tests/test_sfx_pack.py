@@ -51,11 +51,19 @@ class BundledSfxPack(unittest.TestCase):
             src,_=reelkit.sfx_src(str(self.pack),name)
             self.assertIsNotNone(src,f'{name} resolves to nothing - silent edit point')
 
-    def test_riser_is_the_known_synth_fallback(self):
-        """No CC0 riser was found; it must still resolve, via the stand-in."""
-        self.assertNotIn('riser',self.man)
+    def test_riser_is_bundled_and_builds(self):
+        """The closing cue is real audio now, not the stand-in."""
+        self.assertIn('riser',self.man)
         src,_=reelkit.sfx_src(str(self.pack),'riser')
-        self.assertNotIn(str(self.pack),src)
+        self.assertIn(str(self.pack),src)
+        # long enough to read as a build, short enough for the 1.3s the placer allows
+        self.assertGreater(self.man['riser']['duration'],1.0)
+        self.assertLess(self.man['riser']['duration'],2.0)
+
+    def test_unmapped_name_still_falls_back_to_synth(self):
+        """Per-name fallback must survive the pack growing."""
+        src,_=reelkit.sfx_src(str(self.pack),'typing')
+        self.assertIsNotNone(src); self.assertNotIn(str(self.pack),src)
 
     def test_pack_is_used_when_media_use_is_absent(self):
         """A clean clone has no media-use, and must still land on real sounds."""
