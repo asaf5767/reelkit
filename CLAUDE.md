@@ -24,8 +24,11 @@ and `skills/reelkit/references/` - read them before touching behavior.
   build materializes it, it is never optional.
 - **SFX by construction**: event-tied cues (beat entrances, hero pop, riser into
   the close) are placed automatically. A plan with beats resolving to zero cues
-  fails the build. The bundled media-use library is preferred; reelkit synthesizes
-  its own stand-ins when it is absent. No music bed (no licensed catalogue).
+  fails the build. Libraries resolve in order - media-use if installed, then the
+  CC0 pack bundled at `skills/reelkit/assets/sfx` - and any single cue name the
+  chosen library lacks falls back to a synthesized stand-in. No music bed (no
+  licensed catalogue). Anything added to the bundled pack must carry a licence
+  that permits re-hosting the raw files in a public repo; CC0 today.
 - **Face-zone law**: no overlay ever touches the speaker's head (hairline down).
   Card geometry is CSS-driven; plan.json box values are advisory - compute overlap
   from the CSS, not the plan.
