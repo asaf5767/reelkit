@@ -72,3 +72,9 @@ Charts, diagrams, code, chat threads and device UI should stay drawn. They are
 crisper, they animate element by element, their text is real text at any resolution,
 and they cannot hallucinate a fourth bar. Reach for images for **scenes, metaphors,
 characters, textures and objects** — the things vector cards are bad at.
+
+## Assisted authoring and deterministic generation
+
+`python3 scripts/assets.py author --project DIR` sends transcript plus the Reelkit contract through `REELKIT_PLAN_AUTHOR_CMD` and stores the proposal without changing cut timing.
+
+`python3 scripts/assets.py generate --project DIR` resolves every declared slot through `REELKIT_IMAGE_GENERATOR_CMD` (the production adapter uses fal.ai). Its cache key includes prompt, pixel box, alpha requirement and provider. The resulting PNG, SHA-256 and key go into `asset-cache/` and `asset-ledger.json`; both enter the render checkpoint. A re-render is a cache hit and makes no provider call. `assets.py verify` fails on any missing or changed byte.

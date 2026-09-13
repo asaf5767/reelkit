@@ -1592,7 +1592,7 @@ def _checkpoint_bundle(project, checkpoint_dir):
     }
     mpath = os.path.join(project, ".reelkit-render-manifest.json")
     json.dump(manifest, open(mpath, "w", encoding="utf-8"), indent=2)
-    wanted = ["plan.json", "transcript.json", "ASSETS.md", "visuals.json", "BEATS.md", "HOOKS.md",
+    wanted = ["plan.json", "transcript.json", "ASSETS.md", "visuals.json", "BEATS.md", "HOOKS.md", "asset-ledger.json", "asset-cache",
               ".reelkit-render-manifest.json", "public/index.html", "public/cards",
               "public/images", "public/fonts", "public/sfx"]
     with tarfile.open(tmp, "w:gz") as tf:
