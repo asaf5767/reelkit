@@ -27,8 +27,87 @@ from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
                    head_rect, head_clear_y)  # noqa: E402
 from reelkit import container_problems  # noqa: E402
 from geometry import measure_cards, SCALE_FLOOR, HAVE_PW  # noqa: E402
+import heavy, mcache  # noqa: E402
+from reelkit import HF  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+CHECK_TIMEOUT = 600      # Kaggle CPU kernels are slow; a timeout is "did not run"
+TEXT_EXT = (".html", ".css", ".js", ".json", ".svg")
+
+
+def _composition_key(project):
+    """Everything `hyperframes check` reads, as one digest.
+
+    Text files by content, binaries by name and size - hashing the footage and
+    the fonts would cost more than the check it is meant to save, and a video
+    that changes length changes its size. mtime is deliberately absent: a
+    rebuild that produces identical bytes should still hit.
+    """
+    pub = os.path.join(project, "public")
+    parts = []
+    for root, _dirs, files in os.walk(pub):
+        for f in sorted(files):
+            fp = os.path.join(root, f)
+            rel = os.path.relpath(fp, pub)
+            try:
+                if f.lower().endswith(TEXT_EXT):
+                    with open(fp, "rb") as fh:
+                        parts.append(rel + ":" + mcache.sha(fh.read()))
+                else:
+                    parts.append(f"{rel}:{os.path.getsize(fp)}")
+            except OSError:
+                parts.append(rel + ":unreadable")
+    return mcache.sha(*sorted(parts))
+
+
+def composition_check(project):
+    """`hyperframes check --json` as part of the gate.
+
+    Returns (ran, findings). `ran` False means the check could not run at all -
+    no node, no browser, a timeout - which the render gate treats the same way
+    it treats a missing Playwright: a gate that cannot run blocks delivery.
+
+    Cached, because this costs ~20s locally and the gate runs once per rendered
+    segment. Unlike the measurement sections of mcache, both outcomes are stored:
+    a clean result IS the measurement here, and the key covers every file the
+    check reads, so a composition that changed at all misses.
+    """
+    scope = mcache.sha("check", HF)
+    key = _composition_key(project)
+    hit = mcache.get(mcache.load(project), "check", scope, key)
+    if hit:
+        return bool(hit.get("ran")), [tuple(f) for f in hit.get("findings", [])]
+
+    ran, findings = True, []
+    try:
+        r = subprocess.run(["npx", "-y", HF, "check", "public", "--json"],
+                           cwd=project, capture_output=True, text=True,
+                           timeout=CHECK_TIMEOUT)
+        out = r.stdout[r.stdout.index("{"):r.stdout.rindex("}") + 1]
+        res = json.loads(out)
+    except Exception as e:
+        # A non-zero exit is a RESULT (check found errors) and still prints JSON;
+        # only an unparseable run means the gate could not measure.
+        return False, [("WARN", "check", f"hyperframes check could not run: "
+                                         f"{type(e).__name__}: {str(e)[:160]}")]
+
+    for section, payload in sorted(res.items()):
+        if not isinstance(payload, dict):
+            continue
+        for f in payload.get("findings", []) or []:
+            sev = (f.get("severity") or "").lower()
+            lvl = "ERROR" if sev == "error" else "WARN"
+            code = f.get("code") or section
+            findings.append((lvl, f"check:{section}",
+                             f"{code}: {(f.get('message') or '')[:400]}"))
+    if res.get("ok") is False and not any(l == "ERROR" for l, _, _ in findings):
+        findings.append(("ERROR", "check", "hyperframes check reported not ok"))
+
+    mcache.replace(project, "check", scope,
+                   {key: {"ran": ran, "findings": [list(f) for f in findings]}})
+    return ran, findings
+
 
 
 try:
@@ -200,7 +279,26 @@ def run(project, as_json, fix):
         for lvl, msg in container_problems(final):
             findings.append((lvl, "final.mp4", msg))
 
+    # The heavy-overlay budget. Free (static parse, no browser) and fail-closed:
+    # past ~40 such elements the capture layer renders the first half of the
+    # video solid black with no error anywhere, so it is an ERROR, not advice.
+    idx = os.path.join(pub, "index.html")
+    heavy_n = None
+    if os.path.exists(idx):
+        with open(idx, encoding="utf-8") as fh:
+            heavy_n, hf_findings = heavy.findings(fh.read())
+        findings.extend(hf_findings)
+
+    # HyperFrames' own check: lint, runtime, layout, motion and contrast. It is
+    # what catches the heavy-overlay rule upstream (as a warning) plus a great
+    # deal reelkit does not measure itself.
+    check_ran, check_findings = composition_check(project)
+    findings.extend(check_findings)
+
     out = {"canvas": {"w": W, "h": H}, "faceDetection": HAVE_CV2, "cardGeometry": HAVE_PW,
+           "compositionCheck": check_ran,
+           "heavyOverlayElements": heavy_n,
+           "heavyOverlayMax": heavy.MAX, "heavyOverlayWarnAt": heavy.WARN_AT,
            "beats": report,
            "findings": [{"level": l, "id": i, "message": m} for l, i, m in findings]}
     json.dump(out, open(os.path.join(project, "verify.json"), "w", encoding="utf-8"),

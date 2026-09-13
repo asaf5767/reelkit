@@ -35,18 +35,32 @@ SKILL = os.path.dirname(HERE)
 # side effect of somebody rendering on a Tuesday.
 HF_VERSION = "0.8.36"
 HF = f"hyperframes@{HF_VERSION}"
-DEFAULT_BRAND = {
-    "name": "default",
-    "accents": ["#2563EB", "#0F766E", "#7C3AED", "#15803D", "#BE123C"],
-    "bg": "#111827", "text": "#ffffff",
-    "font": "Heebo", "latinFont": "Inter",
-    "captionSize": 76, "captionMaxWords": 3, "captionMaxChars": 15,
-    "captionTop": 1500, "captionHeight": 360,
-    "captionPlate": "rgba(0,0,0,0)", "captionIdle": "#FFFFFF",
-    "captionHighlight": "#93C5FD",
-    # split-mode canvas is a LIGHT surface - the opposite mood from stage/full
-    "canvasBg": "#F7F7F4", "canvasText": "#14161C", "canvasMuted": "#858A93",
-}
+BRAND_DIR = os.path.join(SKILL, "assets", "brand")
+
+def _load_default_brand():
+    """The built-in brand IS assets/brand/default.json, never a copy of it.
+
+    It used to be a dict literal here, and the two drifted: a plan with no brand
+    key rendered canvasBg #F7F7F4 while `"brand": "default"` rendered #FAFAF9,
+    with nothing to catch it. Same defect class as the plan-box vs CSS drift
+    geometry.py removed - two sources of truth for one number - so it gets the
+    same treatment: one source, and a test that they cannot diverge again.
+
+    Read once at import. A missing or unreadable preset is fatal rather than
+    silently falling back to hardcoded values, which is how the copy got here.
+    """
+    path = os.path.join(BRAND_DIR, "default.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            b = json.load(fh)
+    except Exception as e:
+        raise SystemExit(f"reelkit: cannot read the default brand preset {path}: {e}")
+    if not isinstance(b, dict) or "accents" not in b:
+        raise SystemExit(f"reelkit: {path} is not a brand preset (no accents)")
+    return b
+
+
+DEFAULT_BRAND = _load_default_brand()
 
 
 def die(msg):
@@ -63,9 +77,11 @@ def load_brand(project, plan):
     ref = plan.get("brand")
     if isinstance(ref, str):
         for cand in (os.path.join(project, f"{ref}.json"),
-                     os.path.join(SKILL, "assets", "brand", f"{ref}.json")):
+                     os.path.join(BRAND_DIR, f"{ref}.json")):
             if os.path.exists(cand):
-                b.update(json.load(open(cand, encoding="utf-8"))); break
+                with open(cand, encoding="utf-8") as fh:
+                    b.update(json.load(fh))
+                break
         else:
             die(f"brand preset '{ref}' not found in project or assets/brand/")
     elif isinstance(ref, dict):
@@ -1886,7 +1902,12 @@ def _checkpoint_bundle(project, checkpoint_dir):
 VERIFY_REQS = os.path.join(SKILL, "requirements-verify.txt")
 # cardGeometry/faceDetection in verify.json are capability flags - whether the
 # checker COULD measure, not whether it found anything.
-GATE_DEPS = (("cardGeometry", "playwright"), ("faceDetection", "opencv-python-headless"))
+# A gate that cannot measure blocks delivery, so each capability verify reports
+# is named with what provides it. compositionCheck needs node and a browser -
+# the same toolchain the render itself needs, so a render path that cannot run
+# it could not have rendered anyway.
+GATE_DEPS = (("cardGeometry", "playwright"), ("faceDetection", "opencv-python-headless"),
+             ("compositionCheck", "node + `npx hyperframes check`"))
 
 
 def gate_problems(v):

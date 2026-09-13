@@ -43,16 +43,16 @@ class FailClosedGate(unittest.TestCase):
         worker.reelkit=lambda *a,**k: code
 
     def test_clean_run_passes(self):
-        self.stub_verify({'cardGeometry':True,'faceDetection':True,'beats':[{'id':'b01'}],'findings':[]})
+        self.stub_verify({'cardGeometry':True,'faceDetection':True,'compositionCheck':True,'beats':[{'id':'b01'}],'findings':[]})
         self.assertTrue(worker.gate(self.p,'test'))
 
     def test_error_finding_blocks(self):
-        self.stub_verify({'cardGeometry':True,'faceDetection':True,'beats':[],
+        self.stub_verify({'cardGeometry':True,'faceDetection':True,'compositionCheck':True,'beats':[],
                           'findings':[['ERROR','b02','card overlaps the head by 14%']]},code=1)
         self.assertFalse(worker.gate(self.p,'test'))
 
     def test_warn_alone_does_not_block(self):
-        self.stub_verify({'cardGeometry':True,'faceDetection':True,'beats':[],
+        self.stub_verify({'cardGeometry':True,'faceDetection':True,'compositionCheck':True,'beats':[],
                           'findings':[['WARN','b02','card grazes the caption band (0.4%)']]})
         self.assertTrue(worker.gate(self.p,'test'))
 
@@ -105,7 +105,7 @@ class FindingsFormat(unittest.TestCase):
 
     def stub(self,findings,code=0):
         (self.p/'verify.json').write_text(json.dumps(
-            {'cardGeometry':True,'faceDetection':True,'beats':[],'findings':findings}))
+            {'cardGeometry':True,'faceDetection':True,'compositionCheck':True,'beats':[],'findings':findings}))
         worker.reelkit=lambda *a,**k: code
 
     def test_warn_dict_does_not_block(self):
