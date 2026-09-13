@@ -1,0 +1,14 @@
+# Dependencies of the geometry gate (scripts/verify.py).
+#
+# Install these on ANY machine that renders: reelkit.py render refuses to start
+# without them, because a gate that cannot run would let a card ship on the
+# speaker's face with a green exit code.
+#
+#   pip install -r skills/reelkit/requirements-verify.txt
+#   python3 -m playwright install --with-deps chromium
+#
+# opencv is pinned below 5 on purpose: OpenCV 5 removed cv2.CascadeClassifier,
+# which detect_faces() uses, so on 5.x every face check degrades to "no head
+# detected" without erroring.
+opencv-python-headless<5
+playwright

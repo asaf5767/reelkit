@@ -8,6 +8,37 @@ speaker's mouth. `verify` makes that check mechanical.
 python3 scripts/reelkit.py verify --project videos/myreel [--json] [--fix]
 ```
 
+## It also runs itself, immediately before every render
+
+`reelkit.py render` runs this gate first and refuses to start when it reports an
+ERROR - so a head-zone collision costs a failed command instead of a rendered
+reel that a human has to catch on a snapshot.
+
+**Why render and not only build.** `build` already refuses a card it cannot fit
+above the head, which is the right place to fail while authoring. But build is
+not the last step before the spend: a driver can render a project that was built
+earlier, on another machine, or before the fit pass existed. `render_project()`
+is the one funnel every path goes through - the CLI, `worker.py`, and
+`segmentrender.py` once per segment - so the gate lives there as the backstop
+nothing can bypass. Both checks stay: build fails fast, render fails closed.
+
+**A gate that cannot run blocks the render.** Without Playwright or OpenCV,
+`verify` skips the card-geometry or face checks and still exits 0 - which is
+precisely the run that ships a card on the speaker's face with a green light. The
+render refuses in that case and prints what to install:
+
+```
+reelkit: geometry gate failed - refusing to render:
+  the gate could not run - opencv-python-headless unavailable. Install:
+  pip install -r skills/reelkit/requirements-verify.txt
+  && python3 -m playwright install --with-deps chromium
+```
+
+`requirements-verify.txt` is the single declaration of those dependencies; the
+Dockerfile installs from it rather than repeating the list. The opencv pin below
+5 is load-bearing - OpenCV 5 removed `cv2.CascadeClassifier`, so on 5.x every
+face check degrades to "no head detected" without erroring.
+
 Writes `verify.json` and prints a report. **Exit code 1 if any ERROR.** Run it
 after `build` and before `render` — it takes seconds, a render takes minutes.
 

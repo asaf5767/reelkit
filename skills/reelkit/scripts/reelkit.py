@@ -1871,6 +1871,60 @@ def _checkpoint_bundle(project, checkpoint_dir):
     return out
 
 
+VERIFY_REQS = os.path.join(SKILL, "requirements-verify.txt")
+# cardGeometry/faceDetection in verify.json are capability flags - whether the
+# checker COULD measure, not whether it found anything.
+GATE_DEPS = (("cardGeometry", "playwright"), ("faceDetection", "opencv-python-headless"))
+
+
+def gate_problems(v):
+    """Reasons a verify result must stop a render. Empty list means clear.
+
+    Separated from the plumbing so the decision is testable without a browser."""
+    out = []
+    missing = [dep for key, dep in GATE_DEPS if not v.get(key)]
+    if missing:
+        out.append(f"the gate could not run - {', '.join(missing)} unavailable. "
+                   f"Install: pip install -r {VERIFY_REQS} "
+                   "&& python3 -m playwright install --with-deps chromium")
+    for f in v.get("findings", []):
+        if isinstance(f, dict):
+            lvl, cid, msg = f.get("level"), f.get("id"), f.get("message")
+        elif isinstance(f, (list, tuple)) and len(f) >= 3:
+            lvl, cid, msg = f[0], f[1], f[2]
+        else:
+            continue
+        if lvl == "ERROR":
+            out.append(f"{cid}: {msg}")
+    return out
+
+
+def render_gate(project):
+    """Run the geometry gate immediately before spending render minutes.
+
+    This is the backstop, not the only check - `build` already refuses a card it
+    cannot fit above the head. But build is not the last step before the spend,
+    and a driver can render a project that was built earlier or elsewhere.
+    render_project() is the one funnel every path goes through (the CLI,
+    worker.py, and segmentrender.py per segment), so gating here is what makes a
+    head-zone collision impossible to render rather than merely discouraged."""
+    if not os.path.exists(os.path.join(project, "plan.json")):
+        die("no plan.json - the geometry gate cannot run, refusing to render")
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import verify as _verify          # local: verify imports reelkit, so not at module level
+    code = _verify.run(project, False, False)
+    vj = os.path.join(project, "verify.json")
+    if not os.path.exists(vj):
+        die("verify wrote no verify.json - the geometry gate cannot run, refusing to render")
+    problems = gate_problems(json.load(open(vj, encoding="utf-8")))
+    if not problems and code != 0:
+        problems = [f"verify exited {code}"]
+    if problems:
+        die("geometry gate failed - refusing to render:\n" +
+            "\n".join("  " + p for p in problems))
+    print("reelkit: geometry gate passed")
+
+
 def render_project(project, output, workers=None, preview=False, checkpoint_dir=None,
                    software_gpu=False, keep_raw=False):
     """Render through HyperFrames with deterministic sizing and a fast preview lane."""
@@ -1878,6 +1932,9 @@ def render_project(project, output, workers=None, preview=False, checkpoint_dir=
     public = os.path.join(project, "public")
     if not os.path.exists(os.path.join(public, "index.html")):
         die("public/index.html missing - run `reelkit.py build` first")
+    # First, before any sizing work or a checkpoint bundle: nothing else here is
+    # worth doing for a render that must not happen.
+    render_gate(project)
     fps, duration = _project_timing(project)
     env_workers = os.environ.get("REELKIT_RENDER_WORKERS") or os.environ.get("PRODUCER_MAX_WORKERS")
     source = "auto"

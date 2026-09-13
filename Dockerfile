@@ -31,7 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Gate dependencies. opencv is pinned below 5 on purpose: OpenCV 5 dropped
 # cv2.CascadeClassifier, which is what detect_faces() uses - on 5.x every face
 # check silently turns into "no head detected".
-RUN pip install --no-cache-dir "opencv-python-headless<5" playwright pillow numpy \
+COPY skills/reelkit/requirements-verify.txt /tmp/requirements-verify.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-verify.txt pillow numpy \
  && python -m playwright install --with-deps chromium
 
 # Warm the HyperFrames CLI and its render skill into the image so a cold worker
