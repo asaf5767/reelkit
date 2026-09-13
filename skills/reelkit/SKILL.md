@@ -353,3 +353,64 @@ staged audio once, avoiding AAC encoder delay at every boundary.
 python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/segments \
   --segment-seconds 12 --workers 2 --out final.mp4
 ```
+
+**`--preview` renders a subset, not a lower-fidelity copy.** This is a change of
+meaning: it used to render the whole timeline at 10fps draft, which produced
+nothing the full pass could use. It now renders the **leading segments at the
+authored fps and standard quality**, into the same `segment-NNN.mp4` files a full
+render writes — so a full render over the same work-dir resumes them instead of
+redoing them.
+
+```bash
+# look at the first ~12s for real, then finish the rest later
+python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/segments \
+  --segment-seconds 12 --preview --preview-segments 1 --out preview.mp4
+python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/segments \
+  --segment-seconds 12 --out final.mp4          # resumes segment 0, renders the rest
+```
+
+Reuse is safe because a preview segment is produced by the **identical command on
+identical inputs** - same segment subproject, same build output, same fps and
+quality, the same code path a full render takes. Measured on the 12s sample: a
+cold full render is 73s; a 2-of-3 preview followed by a full render is 48s + 28s,
+so the preview costs about 4% instead of a duplicated pass.
+
+It is *not* byte-identical on real footage, and neither is a full render against
+itself. Two renders of one unchanged segment produce only two distinct outputs
+that differ in occasional individual frames - four of five sampled frames hash
+equal, the fifth does not - at min SSIM 0.989 with identical audio. The synthetic
+sample does come out byte-identical, which is what makes this easy to miss. So
+the guarantee a kept segment carries is "an equally valid render of this
+segment", not "the same bytes". This is a property of the toolchain, not of
+segment reuse: it predates reuse and applies to every resume the pipeline has
+ever done, and successive delivery renders of one unchanged reel already vary
+byte to byte while each passes its gates. It does mean `renderdiff.py`'s
+exact-bitmap and SSIM >= 0.999 thresholds cannot pass on real video, only on the
+sample.
+
+**What makes reuse safe is therefore the key, not the bytes.** Every rendered
+segment gets a `segment-NNN.mp4.key.json` sidecar holding a hash of everything
+that decides its pixels - the segment's plan and transcript, the source clip, the
+render fps, and the pipeline scripts and brand presets that `build` is a pure
+function of. A segment is resumed only when that hash still matches *and* it
+decodes to the expected length; otherwise it is re-rendered with the reason
+printed. Edit one beat and only the segment carrying it is redone. The sidecar is
+written after a successful render, so an interrupted one leaves no claim behind.
+
+The trade is that a preview is now **short but real** rather than long and rough.
+To see the whole timeline quickly and throw it away, `reelkit.py render --preview`
+still does 10fps draft over everything — it just produces nothing reusable.
+
+**What reuse is available.** Same-fidelity only, which is now everything the
+segmented path produces. A 10fps draft carries no frame a 30fps output can use,
+which is precisely why the preview stopped being one.
+
+HyperFrames' extracted-frame cache (`--frames-cache-dir` /
+`HYPERFRAMES_EXTRACT_CACHE_DIR`) does not help across fps either: its key includes
+the render fps and frames inside a bucket are indexed sequentially, so a 10fps
+bucket's `frame_00005` is a different moment from a 30fps bucket's. Measured on
+the 12s sample under the old semantics, a preview left 120 cached frames and the
+full render then added 360 more, reusing none. Pointing both passes at one cache
+directory is still worth doing for repeated renders — but measured it was worth
+about 6% (51s cold, 48s fully warm), because the cost is Chrome capture, not
+frame extraction. Do not go looking for a big win in that cache.
