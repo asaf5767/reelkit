@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "planAuthor": {"adapter": "command", "model": "configurable", "commandEnv": "REELKIT_PLAN_AUTHOR_CMD"},
+  "image": {
+    "adapter": "fal",
+    "iterationModel": "fal-ai/fast-sdxl",
+    "finalModel": "fal-ai/flux-pro/v1.1-ultra",
+    "apiBase": "https://queue.fal.run",
+    "credentialEnv": "FAL_KEY",
+    "budgetUsd": 10.0,
+    "cache": "content-addressed"
+  }
+}

@@ -25,18 +25,18 @@ def author(project):
  atomic_json(p/'graphics-plan.assisted.json',proposal); print(p/'graphics-plan.assisted.json')
 def generate(project):
  p=Path(project); manifest=json.loads((p/'visuals.json').read_text()); adapter=os.getenv('REELKIT_IMAGE_GENERATOR_CMD')
- cache=p/'asset-cache'; public=p/'public/images'; cache.mkdir(exist_ok=True); public.mkdir(parents=True,exist_ok=True); rows=[]
+ cfg=json.loads((Path(__file__).parent.parent/'config/providers.json').read_text()); image_cfg=cfg['image']; tier=os.getenv('REELKIT_IMAGE_TIER','iteration'); model=image_cfg['finalModel' if tier=='final' else 'iterationModel']; cache=p/'asset-cache'; public=p/'public/images'; cache.mkdir(exist_ok=True); public.mkdir(parents=True,exist_ok=True); rows=[]
  for slot in manifest.get('slots',[]):
   prompt=slot.get('prompt','').strip(); box=slot.get('box') or [0,0,1024,1024]
   if not prompt: continue
-  key=hashlib.sha256(json.dumps({'prompt':prompt,'box':box,'alpha':slot.get('alpha',False),'provider':'fal.ai'},sort_keys=True).encode()).hexdigest()
+  key=hashlib.sha256(json.dumps({'prompt':prompt,'box':box,'alpha':slot.get('alpha',False),'provider':'fal.ai','model':model},sort_keys=True).encode()).hexdigest()
   cached=cache/f'{key}.png'; target=public/f"{slot['id']}.png"
   if cached.exists(): status='cache-hit'
   else:
    if not adapter: raise SystemExit(f'missing cached asset {slot["id"]}; REELKIT_IMAGE_GENERATOR_CMD is required')
-   command(adapter,{'prompt':prompt,'output':cached,'width':box[2],'height':box[3]}); status='generated'
-  target.write_bytes(cached.read_bytes()); rows.append({'id':slot['id'],'key':key,'sha256':sha(cached),'status':status,'file':str(target.relative_to(p))})
- atomic_json(p/'asset-ledger.json',{'version':1,'provider':'fal.ai','assets':rows}); print(json.dumps(rows,indent=2))
+   command(adapter,{'prompt':prompt,'output':cached,'width':box[2],'height':box[3],'model':model}); status='generated'
+  target.write_bytes(cached.read_bytes()); rows.append({'id':slot['id'],'key':key,'sha256':sha(cached),'status':status,'model':model,'estimatedCostUsd':None,'file':str(target.relative_to(p))})
+ atomic_json(p/'asset-ledger.json',{'version':1,'provider':'fal.ai','model':model,'assets':rows}); print(json.dumps(rows,indent=2))
 def verify(project):
  p=Path(project); ledger=json.loads((p/'asset-ledger.json').read_text())
  bad=[]
