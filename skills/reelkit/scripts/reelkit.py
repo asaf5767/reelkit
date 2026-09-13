@@ -20,6 +20,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    split_canvas_h_face, detect_faces,
                    canvas_image_box, wants_plate, head_rect, head_clear_y)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
+import style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -111,8 +112,11 @@ def group_words(words, max_words, max_chars, gap=0.42):
     return lines
 
 
-def caption_clips(words, br, dur, an):
-    lines = group_words(words, br["captionMaxWords"], br["captionMaxChars"])
+def caption_clips(words, br, dur, an, capcfg=None):
+    """capcfg carries the resolved caption knobs (brand -> profile -> plan); br
+    remains the fallback so a caller that predates profiles still works."""
+    capcfg = capcfg or {"maxWords": br["captionMaxWords"], "maxChars": br["captionMaxChars"]}
+    lines = group_words(words, capcfg["maxWords"], capcfg["maxChars"])
     out = []
     for i, ln in enumerate(lines):
         s = ln[0]["start"] - 0.10
@@ -510,8 +514,16 @@ def build(project, _layouts=None, _pass=1):
                 b["layout"] = _layouts[b["id"]]
     meta = plan.get("meta", {})
     fps = int(meta.get("fps", 30)); W = int(meta.get("width", 1080)); H = int(meta.get("height", 1920))
+    # The style profile: code defaults -> profile -> plan -> per-beat. `plan.style`
+    # names one; absent means the house profile. The profile's brand is a
+    # default the plan can still override, which is what keeps brand nested by
+    # reference rather than folded in.
+    sty, sty_prov = style.for_plan(plan)
     an = Anim(fps)
+    if plan.get("brand") is None and sty.get("brand") is not None:
+        plan = dict(plan, brand=sty["brand"])
     br = load_brand(project, plan)
+    caps_cfg = style.captions(sty, plan, br)
     # Composition direction follows the language. Everything that lays text out
     # as positioned boxes (kinetic chars, caption flex children) must follow it:
     # bidi can reorder a text run, but it cannot reorder boxes we positioned.
@@ -692,8 +704,10 @@ def build(project, _layouts=None, _pass=1):
                 g = ([an.slide(f"'.card[data-card-id=\"{cid}\"] #{cid}-bcap'",
                                st + 0.30, 0.40, dy=24)] if cap else [])
             else:
+                an.use(style.motion_for(sty, kind))
                 body, g = KINDS[kind](cid, beat.get("data", {}), br, an, st, en)
         elif has_img and img.get("mode", "replace") == "replace":
+            an.use(style.motion_for(sty, "image"))
             body, g = KINDS["image"](cid, {
                 "caption": img.get("caption") or beat.get("data", {}).get("caption"),
                 "frame": "bare" if img.get("alpha") else img.get("frame", "soft"),
@@ -707,6 +721,7 @@ def build(project, _layouts=None, _pass=1):
             g = [an.fade(f"'.card[data-card-id=\"{cid}\"] .missing'", st + 0.1, 0.3)]
         else:
             kbr = dict(br, _canvasImg=has_cimg) if cimg else br
+            an.use(style.motion_for(sty, kind))
             body, g = KINDS[kind](cid, beat.get("data", {}), kbr, an, st, en)
             if has_img:   # mode == "behind"
                 body = (f'<div class="imgbehind" id="{cid}-bg"><img src="images/{cid}.png" alt=""/></div>'
@@ -795,7 +810,7 @@ def build(project, _layouts=None, _pass=1):
     # ---- captions ---------------------------------------------------------
     caps = []
     if plan.get("captions", {}).get("enabled", True) and words:
-        caps = caption_clips(words, br, dur, an)
+        caps = caption_clips(words, br, dur, an, caps_cfg)
         hi = (plan.get("captions", {}).get("highlight") or
               br.get("captionHighlight") or br["accents"][0])
         top = int(plan.get("captions", {}).get("top", br["captionTop"]))
@@ -936,6 +951,17 @@ window.__timelines["reelkit"] = tl;
               f"{len(visuals)-len(missing)} present, {len(missing)} missing")
     for m in missing:
         print(f"  ! missing image: public/images/{m}.png")
+    # The reel records the style that produced it: name, version and the digest
+    # of every file in the extends chain. A profile that moves under a finished
+    # reel is then visible rather than inferred - and segment_key() hashes
+    # assets/style/ for the same reason, so a profile edit invalidates cached
+    # segments instead of silently resuming pre-edit pixels.
+    json.dump(sty_prov, open(os.path.join(project, "style-used.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, indent=2)
+
+    print(f"reelkit: style {sty_prov['profile']} v{sty_prov['version']}"
+          + (f" (extends {' -> '.join(sty_prov['extends'])})" if sty_prov["extends"] else "")
+          + f", captions {caps_cfg['maxWords']} word(s)/line")
     print(f"reelkit: hook selected: {hook_title}")
     for runner in hook_runners: print(f"reelkit: hook runner-up: {runner}")
     print("reelkit: wrote public/index.html, visuals.json, BEATS.md, HOOKS.md")

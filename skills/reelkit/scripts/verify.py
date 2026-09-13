@@ -27,7 +27,7 @@ from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
                    head_rect, head_clear_y)  # noqa: E402
 from reelkit import container_problems  # noqa: E402
 from geometry import measure_cards, SCALE_FLOOR, HAVE_PW  # noqa: E402
-import heavy, mcache  # noqa: E402
+import heavy, mcache, style  # noqa: E402
 from reelkit import HF  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -278,6 +278,13 @@ def run(project, as_json, fix):
     if os.path.exists(final):
         for lvl, msg in container_problems(final):
             findings.append((lvl, "final.mp4", msg))
+
+    # Pacing. Q2 answered ENFORCED, so a beat that holds a layout outside the
+    # profile's dwell window is a gate finding at the profile's own severity -
+    # the cadence is what separates an edit from a slideshow, and a profile that
+    # declares it and does not enforce it declares nothing.
+    sty, _prov = style.for_plan(plan)
+    findings.extend(style.pacing_findings(sty, plan))
 
     # The heavy-overlay budget. Free (static parse, no browser) and fail-closed:
     # past ~40 such elements the capture layer renders the first half of the
