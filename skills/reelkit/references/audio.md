@@ -35,6 +35,15 @@ The voice is known at build time, so ducking is computed, not guessed: every
 cue's volume is scaled by the measured voice level at its moment (up to 7 dB
 down when speech is present). `audio.voiceDuck: false` disables it.
 
+### Enforcement (code)
+
+A reel with beats and no SFX is a defect, and the pipeline treats it that way:
+`build` dies when a plan has beats but resolves zero cues (unless
+`audio.autoSfx: false` waives sound explicitly). The bundled library is
+preferred; when it is missing, reelkit synthesizes stand-ins for every standard
+name into `~/.cache/reelkit/sfx-synth` (created here, no licence concerns) and
+prints that it did so. "Continuing without sfx" no longer exists as a path.
+
 ### Where the sounds come from
 
 The 19-file library bundled with the HyperFrames `media-use` skill
