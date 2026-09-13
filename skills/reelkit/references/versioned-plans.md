@@ -17,3 +17,9 @@ Every review note is `{ "frame": <seconds or frame number>, "note": "..." }`. Ap
 Ingest each reference reel into a named template under `templates/<name>/template.json`. Templates are versioned and drive hook treatment, captions, text zones, overlay rhythm and graphic silence identically across a batch. The supplied `yuval-face-first-hebrew@1` template is for short vertical Hebrew talking-head reels. RTL remains a Reelkit rendering layer.
 
 Out of scope: After Effects and DaVinci targets, music beds, and long-form pacing.
+
+## Opening hook title
+
+Every reel starts with a short hook text title in the upper text zone. It may overlap the opening speech in time, but it must stay clear of the whole head and the caption zone. The hook is an editorial promise, not a transcript duplicate.
+
+When one title is clearly strongest, author it. When two or three strong options remain, stop before rendering and ask the user to pick. Store the selected title in the graphics-plan; the cut-plan never changes for a hook-title choice.

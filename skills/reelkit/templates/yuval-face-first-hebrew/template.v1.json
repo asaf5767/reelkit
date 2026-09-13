@@ -1,0 +1,10 @@
+{
+  "name": "yuval-face-first-hebrew",
+  "version": 1,
+  "lang": "he",
+  "caption": {"maxWords": 3, "maxChars": 15, "zone": "lower", "plain": true},
+  "hook": {"zone": "upper", "durationSeconds": [2, 5]},
+  "rhythm": {"faceOnlyTarget": [0.65, 0.8], "overlaySeconds": [2, 5], "punchScale": [1.03, 1.05]},
+  "visualLaw": ["concrete process before metaphor", "whole head clear", "graphic silence is pacing", "full screen requires literal moving b-roll"],
+  "rtl": {"native": true, "htmlDirAttribute": false}
+}
