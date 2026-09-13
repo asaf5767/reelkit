@@ -26,13 +26,10 @@ from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
                    detect_faces, CANVAS_MIN, CANVAS_IMG_MIN,
                    head_rect, head_clear_y)  # noqa: E402
 from reelkit import container_problems  # noqa: E402
+from geometry import measure_cards, SCALE_FLOOR, HAVE_PW  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Below this a shrunk card stops being readable at phone size, and the beat
-# needs an editorial decision (B-roll, or a kind that says it in less space)
-# rather than another few percent off.
-SCALE_FLOOR = 0.62
 
 try:
     import cv2
@@ -40,82 +37,15 @@ try:
 except Exception:
     HAVE_CV2 = False
 
-try:
-    from playwright.sync_api import sync_playwright
-    HAVE_PW = True
-except Exception:
-    HAVE_PW = False
 
 
 def sh(cmd):
     return subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=True, text=True)
 
 
-# ------------------------------------------------------------------ geometry
-HARNESS = """<!doctype html><html><head><meta charset="utf-8"/>
-<style>%(theme)s
-html,body{margin:0;width:%(w)dpx;height:%(h)dpx;overflow:hidden;}
-#host{position:absolute;left:0;top:0;width:%(w)dpx;height:%(h)dpx;overflow:hidden;}
-#host .card{position:relative;width:100%%;height:100%%;overflow:hidden;}
-</style></head><body><div id="host">%(card)s</div></body></html>"""
-
-
-def measure_cards(project, plan, W, H):
-    """Lay out every card fragment in a real browser and read its settled box."""
-    pub = os.path.join(project, "public")
-    idx = open(os.path.join(pub, "index.html"), encoding="utf-8").read()
-    theme = idx.split("<style>", 1)[1].split("</style>", 1)[0]
-    theme = theme.replace("url('fonts/", "url('" + os.path.join(pub, "fonts") + "/")
-    res = {}
-    with sync_playwright() as p:
-        br = p.chromium.launch(args=["--no-sandbox"])
-        pg = br.new_page(viewport={"width": W, "height": H})
-        for beat in plan["beats"]:
-            cid = beat["id"]
-            cpath = os.path.join(pub, "cards", f"{cid}.html")
-            if not os.path.exists(cpath):
-                continue
-            card = open(cpath, encoding="utf-8").read()
-            with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False,
-                                             dir=pub, encoding="utf-8") as fh:
-                fh.write(HARNESS % {"theme": theme, "card": card, "w": W, "h": H})
-                tmp = fh.name
-            try:
-                pg.goto("file://" + tmp)
-                pg.wait_for_timeout(180)
-                box = pg.evaluate("""() => {
-                  const root = document.querySelector('.card .root');
-                  if (!root) return null;
-                  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,n=0;
-                  root.querySelectorAll('*').forEach(el => {
-                    // .broll is the B-roll ground: it is the frame by
-                    // definition, so counting it makes every full beat
-                    // look like a card that overflows and covers the
-                    // captions.
-                    if (el.closest && el.closest('.broll')) return;
-                    const r = el.getBoundingClientRect();
-                    if (r.width < 2 || r.height < 2) return;
-                    const cs = getComputedStyle(el);
-                    if (cs.visibility === 'hidden' || cs.display === 'none') return;
-                    x0=Math.min(x0,r.left); y0=Math.min(y0,r.top);
-                    x1=Math.max(x1,r.right); y1=Math.max(y1,r.bottom); n++;
-                  });
-                  // The image frame inside a split panel is reported
-                  // separately: it is flex-sized against the resolved canvas,
-                  // so its settled height is the only honest answer to "did
-                  // the picture actually fit".
-                  const fr = root.querySelector('.cimgframe');
-                  const f = fr ? fr.getBoundingClientRect() : null;
-                  return n ? {x:x0,y:y0,w:x1-x0,h:y1-y0,n,
-                              fw: f ? f.width : null, fh: f ? f.height : null} : null;
-                }""")
-                if box:
-                    res[cid] = {k: (round(v, 1) if isinstance(v, (int, float)) else v)
-                                for k, v in box.items()}
-            finally:
-                os.unlink(tmp)
-        br.close()
-    return res
+# ---------------------------------------------------------------- geometry
+# measure_cards, the fit maths and the CSS constants live in geometry.py so the
+# builder and this checker cannot disagree about where a card is.
 
 
 def overlap_pct(a, b):
