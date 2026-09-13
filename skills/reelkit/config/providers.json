@@ -1,6 +1,19 @@
 {
   "version": 1,
-  "planAuthor": {"adapter": "command", "model": "configurable", "commandEnv": "REELKIT_PLAN_AUTHOR_CMD"},
+  "transcribe": {
+    "adapter": "command",
+    "commandEnv": "REELKIT_TRANSCRIBE_CMD",
+    "model": "large-v3",
+    "language": "he",
+    "granularity": "word",
+    "cache": "content-addressed",
+    "defaultAdapter": "whisper_adapter.py"
+  },
+  "planAuthor": {
+    "adapter": "command",
+    "model": "configurable",
+    "commandEnv": "REELKIT_PLAN_AUTHOR_CMD"
+  },
   "image": {
     "adapter": "fal",
     "iterationModel": "fal-ai/fast-sdxl",

@@ -1,0 +1,12 @@
+# Railway worker service. The render is minutes long, so this is a worker, not a
+# web process - an HTTP request cannot hold it open.
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# One job per container: the pipeline writes into a project directory and the
+# gate reads it back. Restarts resume from whatever artifacts already exist
+# (transcript, plan, asset cache are all content-addressed).
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 2
