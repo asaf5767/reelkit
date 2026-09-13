@@ -23,7 +23,21 @@
       "native social phrasing",
       "pattern interrupt",
       "not a documentary summary"
-    ]
+    ],
+    "calibration": {
+      "acceptedExample": "נתקעתם? אל תשחקו אותה גיבורים",
+      "acceptedWhy": [
+        "direct address",
+        "tension",
+        "native pattern interrupt"
+      ],
+      "rejectedPattern": "lesson-summary titles, even when accurate",
+      "rejectedExamples": [
+        "מתי להרים דגל?",
+        "לא צריך להילחם בשקט",
+        "לבקש עזרה זו מיומנות"
+      ]
+    }
   },
   "rhythm": {
     "faceOnlyTarget": [

@@ -23,3 +23,9 @@ Out of scope: After Effects and DaVinci targets, music beds, and long-form pacin
 Every reel starts with a short hook text title in the upper text zone. It may overlap the opening speech in time, but it must stay clear of the whole head and the caption zone. The hook is an editorial promise, not a transcript duplicate.
 
 Auto-pick the strongest scroll-stopping title and render without blocking the video-in/video-out pipeline. A hook should be short, create tension or a curiosity gap, and read like native social copy rather than a documentary summary. Include two or three runners-up in the render report; the user can swap one with a single `{frame, note}` graphics-plan correction during normal review. The cut-plan never changes for a hook-title choice.
+
+## Hook taste calibration
+
+Accepted Hebrew pattern: `נתקעתם? אל תשחקו אותה גיבורים` - direct address, tension, and a native pattern interrupt before the reel explains itself.
+
+Rejected pattern: lesson-summary hooks such as `מתי להרים דגל?`, `לא צריך להילחם בשקט`, and `לבקש עזרה זו מיומנות`. They accurately summarize the topic but do not stop the scroll. Accuracy is necessary; summary shape is not enough.
