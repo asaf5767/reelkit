@@ -1348,7 +1348,6 @@ def resolve_sfx(plan, pub, dur, an):
         print("reelkit: bundled sfx library not found - using synthesized stand-ins "
               "(~/.cache/reelkit/sfx-synth). Install the HyperFrames media-use skill "
               "for the real sounds.")
-        return [], []
 
     os.makedirs(os.path.join(pub, "sfx"), exist_ok=True)
     files, out, tracks = {}, [], []          # tracks[i] = end time of last cue on track i
