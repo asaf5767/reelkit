@@ -1000,6 +1000,141 @@ def find_sfx_dir(explicit=None):
     return None
 
 
+_SR = 44100
+
+
+def _wavr(samples):
+    """16-bit mono PCM bytes from float samples."""
+    import array
+    a = array.array("h", (int(max(-1.0, min(1.0, x)) * 32767) for x in samples))
+    return a.tobytes()
+
+
+def _env(n, attack, decay):
+    import math
+    out = []
+    for i in range(n):
+        t = i / n
+        out.append(min(1.0, t / max(attack, 1e-4)) * math.exp(-decay * t))
+    return out
+
+
+def _synth(name):
+    """One synthesized stand-in for a bundled library sound. Deterministic."""
+    import math, random
+    rng = random.Random(name)
+    sr = _SR
+
+    def tone(f0, f1, dur, amp=0.8, decay=6.0):
+        n = int(sr * dur)
+        env = _env(n, 0.004, decay)
+        ph = 0.0
+        out = []
+        for i in range(n):
+            f = f0 + (f1 - f0) * (i / n)
+            ph += 2 * math.pi * f / sr
+            out.append(amp * env[i] * math.sin(ph))
+        return out
+
+    def noise(dur, amp=0.6, rise=0.35, lp=0):
+        n = int(sr * dur)
+        raw = [rng.uniform(-1, 1) for _ in range(n + 64)]
+        if lp:  # cheap one-pole lowpass
+            for k in range(lp):
+                raw = [(raw[i] + raw[i + 1]) / 2 for i in range(len(raw) - 1)]
+        out = []
+        for i in range(n):
+            t = i / n
+            e = (min(1.0, t / rise) if t < rise else math.exp(-7 * (t - rise) / (1 - rise)))
+            out.append(amp * e * raw[i])
+        return out
+
+    if name == "pop":
+        return tone(150, 65, 0.14, 0.9, 9.0)
+    if name in ("click", "click-soft", "key-press"):
+        f = {"click": 1400, "click-soft": 900, "key-press": 2100}[name]
+        a = 0.5 if name == "click-soft" else 0.7
+        body = tone(f, f * 0.7, 0.05, a, 30.0)
+        return body
+    if name in ("whoosh", "whoosh-short", "whoosh-cinematic"):
+        dur, lp, amp = {"whoosh": (0.45, 3, 0.55), "whoosh-short": (0.24, 2, 0.5),
+                        "whoosh-cinematic": (0.9, 6, 0.6)}[name]
+        return noise(dur, amp, rise=0.4, lp=lp)
+    if name in ("impact-bass-1", "impact-bass-2"):
+        f = 58 if name.endswith("1") else 72
+        body = tone(f, f * 0.8, 0.4, 0.85, 5.0)
+        th = noise(0.08, 0.25, rise=0.1, lp=4)
+        return [body[i] + (th[i] if i < len(th) else 0) for i in range(len(body))]
+    if name == "riser":
+        return noise(1.1, 0.4, rise=0.97, lp=2)
+    if name == "ping":
+        return tone(880, 870, 0.35, 0.6, 5.0)
+    if name == "chime":
+        a = tone(660, 660, 0.4, 0.4, 4.0)
+        b = tone(990, 990, 0.4, 0.3, 4.0)
+        return [x + y for x, y in zip(a, b)]
+    if name == "notification":
+        a = tone(880, 880, 0.09, 0.6, 8.0)
+        b = tone(1174, 1174, 0.12, 0.6, 8.0)
+        return a + [0.0] * int(0.03 * sr) + b
+    if name == "sparkle":
+        out = []
+        for f in (1320, 1760, 2200):
+            out += tone(f, f, 0.08, 0.4, 10.0) + [0.0] * int(0.02 * sr)
+        return out
+    if name == "error":
+        return tone(220, 180, 0.25, 0.5, 4.0)
+    if name.startswith("glitch"):
+        n = int(sr * 0.18)
+        return [rng.choice([-0.5, 0.5]) * math.exp(-6 * i / n) for i in range(n)]
+    if name == "typing":
+        out = []
+        for _ in range(4):
+            out += tone(2000, 1800, 0.03, 0.4, 25.0) + [0.0] * int(0.06 * sr)
+        return out
+    return None
+
+
+def synth_sfx_dir():
+    """Procedurally generated fallback for the bundled media-use SFX library.
+
+    The Pixabay-licensed bundle cannot be re-hosted in this repo, and on a
+    clean machine (CI, Kaggle, a fresh clone) it simply is not there - which is
+    how a silent export shipped. These synthesized stand-ins are created here,
+    owned by reelkit, and always available. They are deliberately plain; when
+    the real library is installed it wins (find_sfx_dir runs first)."""
+    import wave
+    d = os.path.expanduser("~/.cache/reelkit/sfx-synth")
+    man = os.path.join(d, "manifest.json")
+    if os.path.exists(man):
+        return d
+    os.makedirs(d, exist_ok=True)
+    names = ["whoosh", "whoosh-short", "whoosh-cinematic", "pop", "click",
+             "click-soft", "impact-bass-1", "impact-bass-2", "riser", "ping",
+             "chime", "notification", "sparkle", "key-press", "error",
+             "glitch-1", "glitch-2", "glitch-3", "typing"]
+    manifest = {}
+    for name in names:
+        samples = _synth(name)
+        if not samples:
+            continue
+        wav = os.path.join(d, name + ".wav")
+        with wave.open(wav, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(_SR)
+            w.writeframes(_wavr(samples))
+        mp3 = os.path.join(d, name + ".mp3")
+        r = sh(["ffmpeg", "-y", "-v", "error", "-i", wav, "-codec:a", "libmp3lame",
+                "-q:a", "4", mp3])
+        os.remove(wav)
+        if r.returncode != 0 or not os.path.exists(mp3):
+            continue
+        manifest[name] = {"duration": round(len(samples) / _SR, 3)}
+    json.dump(manifest, open(man, "w"), indent=1)
+    return d
+
+
 PEAK_RE = re.compile(r"max_volume:\s*(-?[0-9.]+) dB")
 
 
@@ -1076,7 +1211,10 @@ def auto_cues(plan, an):
         if b.get("sfx"):                       # manual cues win the beat
             continue
         cues = []
-        if i > 0 and b.get("mode") in ("split", "stage"):
+        if i > 0 and b.get("mode") in ("split", "stage", "top", "overlay"):
+            # Any beat entrance is a scene change the ear should catch; the mode
+            # list used to stop at split/stage, which left top-mode overlays
+            # (the common case) silent.
             cues.append({"name": _AUTO_ENTRY_WHOOSH[whoosh_i % 2], "at": 0.05,
                          "volume": 0.7})
             whoosh_i += 1
@@ -1087,6 +1225,10 @@ def auto_cues(plan, an):
             cues.append({"name": "click-soft", "at": 0.25, "volume": 0.7})
         elif k in _AUTO_HIT_KINDS:
             cues.append({"name": "impact-bass-2", "at": 0.3, "volume": 0.6})
+        elif k in ("chips", "checklist", "quote"):
+            cues.append({"name": "click-soft", "at": 0.2, "volume": 0.7})
+        elif k == "image":
+            cues.append({"name": "pop", "at": 0.2, "volume": 0.6})
         if cues:
             per_beat[b["id"]] = cues
             events.extend(float(b["start"]) + float(c["at"]) for c in cues)
@@ -1202,8 +1344,10 @@ def resolve_sfx(plan, pub, dur, an):
 
     sdir = find_sfx_dir(plan.get("audio", {}).get("sfxDir"))
     if not sdir:
-        print("reelkit: ! sfx requested but no library found - install the HyperFrames "
-              "media-use skill, or set audio.sfxDir. Continuing without sfx.")
+        sdir = synth_sfx_dir()
+        print("reelkit: bundled sfx library not found - using synthesized stand-ins "
+              "(~/.cache/reelkit/sfx-synth). Install the HyperFrames media-use skill "
+              "for the real sounds.")
         return [], []
 
     os.makedirs(os.path.join(pub, "sfx"), exist_ok=True)
@@ -1238,6 +1382,11 @@ def resolve_sfx(plan, pub, dur, an):
         out.append(f'<audio id="sfx-{len(out):03d}-{c["name"]}" class="clip" src="sfx/{fname}" '
                    f'data-start="{at:.4f}" data-duration="{d:.4f}" '
                    f'data-track-index="{20+ti}" data-volume="{round(min(1.0, gain*c["volume"]),3)}"></audio>')
+    if plan.get("beats") and plan.get("audio", {}).get("autoSfx") is not False \
+            and not out:
+        die("plan has beats but zero sfx cues resolved - a silent export is a "
+            "failed render. Check that every beat kind maps to a cue in "
+            "auto_cues, or set audio.autoSfx: false to waive sound explicitly.")
     print(f"reelkit: {len(out)} sfx cue(s) across {len(tracks)} track(s)")
     return out, sorted({c["name"] for c in cues})
 
