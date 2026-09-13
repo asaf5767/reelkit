@@ -129,3 +129,53 @@ needs a first real-footage run.
   builds need `--network=host` plus the proxy CA trusted.
 - Test suite: `python3 -m unittest discover -s tests`. All branches green at
   time of writing.
+
+
+## Render cost profile (v9 follow-up, 2026-09-13)
+
+Measured on the 12s sample, 2 workers, by wrapping segmentrender's subprocess
+helpers and reading HyperFrames' own phase trace. No code was changed.
+
+**The fixed cost is per render *invocation*, not per segment-second.** Two-point
+fit on the same composition (38 frames = 20.34s, 360 frames = 48s):
+
+    cost = 17.1s fixed + 0.086s per frame
+
+So a 38-frame segment spends ~3.3s capturing frames and ~17s on everything else.
+Where the 17.1s goes:
+
+| Component | Local | Note |
+| --- | --- | --- |
+| `capture_disk` fixed | ~8.1s | Chrome launches (one per worker) |
+| `encode` | ~4.5s | near-constant: 4.52s at 38 frames, 5.35s at 360 |
+| npx/node/python startup | ~3.4s | of which `npx -y hyperframes@latest` alone is 1.6s |
+| assemble | 0.56s | |
+| compile + probe + extract + audio + file-server | 0.65s | |
+
+segmentrender's own per-segment glue adds ~5s more: ffmpeg trim in `prepare`
+2.8s, `build` 1.6-1.75s, `valid_video`'s decode-count probe 0.5-0.65s. Key
+hashing, join and export are together under 1s and are not worth touching.
+
+**Extrapolating to Kaggle v9** (484s, 645 frames rendered at ~2.4fps = 269s
+capture): ~215s of fixed cost across 2 rendered segments plus glue, i.e. roughly
+**80-100s fixed per render invocation** - about 5x this box, consistent with a
+slower kernel and slower npx.
+
+Ranked candidates (not implemented, pending Instinct's call):
+
+1. **Fewer, longer segments.** Cost scales with segment *count*. 12s -> 24s
+   segments on a 47s reel is 4 invocations -> 2, saving ~1 invocation-fixed-cost
+   each. Already a flag (`--segment-seconds`); the trade is coarser resume.
+2. **Pin the HyperFrames version** instead of `npx -y hyperframes@latest`. 1.6s
+   per invocation locally just to resolve `@latest`, paid by build, render,
+   check and snapshot alike, and worse on a slow network. Also a correctness
+   win: `@latest` lets the renderer change mid-project.
+3. **Let the render gate reuse build's measurement.** PR #8 adds ~1.3s locally
+   per invocation (a second Chromium launch plus face detection) seconds after
+   `build` measured the same things. Proportionally larger on Kaggle.
+4. **Stream-copy the `prepare` trim** where boundaries land on keyframes,
+   instead of re-encoding at crf 17. ~2.8s per segment locally.
+5. **Cache the decoded-frame count in the sidecar**, re-deriving only when size
+   or mtime changes. ~0.5s per segment locally.
+
+Items 1 and 4 are the only ones that touch behaviour; 2, 3 and 5 are cost-only.
