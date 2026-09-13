@@ -1,6 +1,6 @@
 {
   "name": "yuval-face-first-hebrew",
-  "version": 3,
+  "version": 2,
   "lang": "he",
   "caption": {
     "maxWords": 3,
@@ -16,14 +16,7 @@
       5
     ],
     "mayOverlapSpeech": true,
-    "selection": "Auto-pick the strongest scroll-stopping title before render. Never block video-in/video-out. Include 2-3 runners-up in the render report so review can request a one-note graphics-plan correction.",
-    "qualityBar": [
-      "short",
-      "tension or curiosity gap",
-      "native social phrasing",
-      "pattern interrupt",
-      "not a documentary summary"
-    ]
+    "selection": "If multiple strong titles exist, present 2-3 to the user and get the pick before rendering."
   },
   "rhythm": {
     "faceOnlyTarget": [

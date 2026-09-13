@@ -97,7 +97,7 @@ check it.
 
 ## 3. Plan the beats
 
-Before authoring, choose a named versioned style-DNA template and keep cut-plan and graphics-plan histories independent. Every reel requires an opening hook text title in the upper zone; it may overlap the opening speech. If 2-3 strong options remain, ask the user to pick before rendering. Review corrections use `{frame, note}` patches and per-render version numbers. See `references/versioned-plans.md`.
+Before authoring, choose a named versioned style-DNA template and keep cut-plan and graphics-plan histories independent. Every reel requires an opening hook text title in the upper zone; it may overlap the opening speech. Auto-pick the strongest scroll-stopping option and render without blocking; include 2-3 runners-up in the render report for a one-note review swap. Review corrections use `{frame, note}` patches and per-render version numbers. See `references/versioned-plans.md`.
 
 
 Optional first pass — get a draft instead of an empty file:

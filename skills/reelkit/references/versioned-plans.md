@@ -22,4 +22,4 @@ Out of scope: After Effects and DaVinci targets, music beds, and long-form pacin
 
 Every reel starts with a short hook text title in the upper text zone. It may overlap the opening speech in time, but it must stay clear of the whole head and the caption zone. The hook is an editorial promise, not a transcript duplicate.
 
-When one title is clearly strongest, author it. When two or three strong options remain, stop before rendering and ask the user to pick. Store the selected title in the graphics-plan; the cut-plan never changes for a hook-title choice.
+Auto-pick the strongest scroll-stopping title and render without blocking the video-in/video-out pipeline. A hook should be short, create tension or a curiosity gap, and read like native social copy rather than a documentary summary. Include two or three runners-up in the render report; the user can swap one with a single `{frame, note}` graphics-plan correction during normal review. The cut-plan never changes for a hook-title choice.
