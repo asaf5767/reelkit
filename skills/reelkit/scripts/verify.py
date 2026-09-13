@@ -285,6 +285,7 @@ def run(project, as_json, fix):
     # declares it and does not enforce it declares nothing.
     sty, _prov = style.for_plan(plan)
     findings.extend(style.pacing_findings(sty, plan))
+    findings.extend(style.doodle_findings(sty, plan))
 
     # The heavy-overlay budget. Free (static parse, no browser) and fail-closed:
     # past ~40 such elements the capture layer renders the first half of the

@@ -373,6 +373,14 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 {P} .fbtn {{ color:#10121a;font-size:38px;font-weight:900;padding:16px 40px;border-radius:999px; }}
 {P} .doodle {{ width:640px;max-width:100%; }}
 {P} .doodle svg {{ width:100%;height:auto;display:block;overflow:visible; }}
+/* Hand-drawn marks overlay the artifact rather than stacking under it - a mark
+   beside the thing it points at is a decoration, not an annotation. Plain
+   strokes only: nothing here spends the heavy-overlay budget. */
+{P} .dwrap {{ position:relative; }}
+{P} .dwrap > svg.dmarks {{ position:absolute;inset:0;width:100%;height:100%;
+ pointer-events:none;overflow:visible; }}
+/* Marks with no authored SVG under them have nothing to size against. */
+{P} .dwrap > svg.dmarks:only-child {{ position:relative;aspect-ratio:1/1; }}
 {P} .imgframe {{ width:820px;border-radius:32px;overflow:hidden;position:relative;
  box-shadow:0 30px 80px rgba(0,0,0,.7); }}
 {P} .imgframe.soft {{ border:2px solid rgba(255,255,255,.14); }}

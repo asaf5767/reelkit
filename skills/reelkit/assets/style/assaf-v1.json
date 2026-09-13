@@ -69,5 +69,10 @@
       "attackMs": 5,
       "releaseMs": 250
     }
+  },
+  "doodle": {
+    "maxMarks": 2,
+    "drawSeconds": 0.4,
+    "severity": "error"
   }
 }

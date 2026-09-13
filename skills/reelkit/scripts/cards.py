@@ -13,7 +13,7 @@ Contract rules that MUST hold (HyperFrames lint + RTL safety):
 import html, os, statistics, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import mcache  # noqa: E402
+import marks as _marks, mcache  # noqa: E402
 
 def esc(s):
     return html.escape(str(s), quote=True)
@@ -675,11 +675,39 @@ def k_doodle(cid, d, br, an, st, en):
     {id, anim, at, dur, ...} so anything not in the library is still authorable
     without touching this file."""
     A = _mk(br); g = []
-    svg = d["svg"].replace("{A0}", A(0)).replace("{A1}", A(1)).replace("{A2}", A(2)) \
-                  .replace("{A3}", A(3)).replace("{A4}", A(4))
+    # `svg` is now optional: a beat may name marks from the family and author
+    # nothing. It used to be required, which is why the family could not have
+    # been used without also pasting an SVG in beside it.
+    svg = d.get("svg") or ""
+    for i in range(5):
+        svg = svg.replace("{A%d}" % i, A(i))
     cap = (kinetic(f"{cid}-t", d["caption"], "btitle", D) if d.get("caption") else "")
     wdt = int(d.get("width", 720))
-    b = f'<div class="stack center"><div class="doodle" style="width:{wdt}px">{svg}</div>{cap}</div>'
+    # The named mark family. `data.svg` stays supported - it is the escape hatch
+    # for anything the family does not cover - and marks overlay it, so a beat
+    # can use either or both. Every mark is laid out in the same 0-1000 square
+    # as the card, so it lands ON the artifact rather than beside it.
+    mk_svg, mk_anims = "", []
+    ms = d.get("marks") or []
+    draw_s = float(d.get("drawSeconds", 0.40))
+    for i, m in enumerate(ms):
+        name = m.get("mark")
+        eid = f"{cid}-mk{i}"
+        path, length = _marks.mark_svg(
+            eid, name, f"{cid}:{i}:{name}", m,
+            color=m.get("color") or A(int(m.get("accent", 0))),
+            width=int(m.get("width", 10)))
+        mk_svg += path
+        mk_anims.append((eid, float(m.get("at", 0.15 + 0.18 * i)),
+                         float(m.get("dur", draw_s)), length))
+    if mk_svg:
+        mk_svg = (f'<svg class="dmarks" viewBox="0 0 {_marks.VIEW} {_marks.VIEW}" '
+                  f'preserveAspectRatio="none" aria-hidden="true">{mk_svg}</svg>')
+
+    b = (f'<div class="stack center"><div class="doodle dwrap" style="width:{wdt}px">'
+         f'{svg}{mk_svg}</div>{cap}</div>')
+    for eid, at, dur, length in mk_anims:
+        g.append(an.draw(S(cid, eid), st + at, dur, length))
     for a in d.get("anims", []):
         sel = S(cid, a["id"]); t = st + float(a.get("at", 0)); dd = float(a.get("dur", 0.45))
         kind = a.get("anim", "pop")
