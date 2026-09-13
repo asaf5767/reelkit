@@ -21,7 +21,14 @@ composition. Nothing else is authored by hand.
     "trimTail": true         // drop the final frame (default true) - avoids a black tail
   },
 
-  "brand": "assaf",          // preset name in assets/brand/, or an inline object
+  "style": "assaf-v1",       // style profile in assets/style/ (default: assaf-v1, the
+                             // house style). "base" is pre-profile behaviour and
+                             // enforces no pacing. The profile decides caption
+                             // chunking, per-kind motion and the dwell window;
+                             // the keys below still override it.
+
+  "brand": "assaf",          // preset name in assets/brand/, or an inline object.
+                             // Omit it to take the profile's brand.
 
   "captions": {
     "enabled": true,

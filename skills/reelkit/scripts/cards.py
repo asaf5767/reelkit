@@ -27,24 +27,51 @@ def S(cid, eid):
 class Anim:
     """Deterministic, seek-safe GSAP emitters. Everything is fromTo on purpose:
     a bare .to() records its start value on first render, which makes a random
-    seek produce a different frame than a linear play-through."""
+    seek produce a different frame than a linear play-through.
 
-    def __init__(self, fps=30):
+    Durations and eases come from the active style profile when the caller does
+    not name one. `use()` sets the resolved per-kind spec before a card is
+    built, so a doodle can draw on while a hero pops - Q1's per-kind answer -
+    without every builder knowing a profile exists. A builder that still passes
+    an explicit duration keeps it: those are the hardcoded offsets the profile
+    proposal said would be absorbed later, not in this slice.
+    """
+
+    def __init__(self, fps=30, motion=None):
         self.fps = fps
+        self._motion = motion or {}      # primitive -> {duration, ease, scale}
+
+    def use(self, spec):
+        """Adopt the resolved motion for the card about to be built."""
+        self._motion = spec or {}
+        return self
+
+    def _v(self, prim, key, given, fallback):
+        if given is not None:
+            return given
+        v = (self._motion.get(prim) or {}).get(key)
+        return fallback if v is None else v
 
     def q(self, t):
         return round(round(float(t) * self.fps) / self.fps, 4)
 
-    def fade(self, sel, t, d=0.40, fr=0):
-        return f"tl.fromTo({sel},{{opacity:{fr}}},{{opacity:1,duration:{d},ease:'power2.out'}},{self.q(t)});"
+    def fade(self, sel, t, d=None, fr=0):
+        d = self._v("fade", "duration", d, 0.40)
+        e = self._v("fade", "ease", None, "power2.out")
+        return f"tl.fromTo({sel},{{opacity:{fr}}},{{opacity:1,duration:{d},ease:'{e}'}},{self.q(t)});"
 
-    def pop(self, sel, t, d=0.45, sc=0.55):
+    def pop(self, sel, t, d=None, sc=None):
+        d = self._v("pop", "duration", d, 0.45)
+        sc = self._v("pop", "scale", sc, 0.55)
+        e = self._v("pop", "ease", None, "back.out(1.7)")
         return (f"tl.fromTo({sel},{{opacity:0,scale:{sc}}},"
-                f"{{opacity:1,scale:1,duration:{d},ease:'back.out(1.7)'}},{self.q(t)});")
+                f"{{opacity:1,scale:1,duration:{d},ease:'{e}'}},{self.q(t)});")
 
-    def slide(self, sel, t, d=0.42, dx=0, dy=0):
+    def slide(self, sel, t, d=None, dx=0, dy=0):
+        d = self._v("slide", "duration", d, 0.42)
+        e = self._v("slide", "ease", None, "power3.out")
         return (f"tl.fromTo({sel},{{opacity:0,x:{dx},y:{dy}}},"
-                f"{{opacity:1,x:0,y:0,duration:{d},ease:'power3.out'}},{self.q(t)});")
+                f"{{opacity:1,x:0,y:0,duration:{d},ease:'{e}'}},{self.q(t)});")
 
     def grow_h(self, sel, t, d, h):
         return f"tl.fromTo({sel},{{height:0}},{{height:{h},duration:{d},ease:'power2.out'}},{self.q(t)});"

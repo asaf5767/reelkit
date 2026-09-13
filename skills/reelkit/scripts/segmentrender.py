@@ -89,6 +89,10 @@ def segment_key(seg_dir, render_fps, reelkit_path):
     scripts=Path(reelkit_path).resolve().parent
     for f in sorted(scripts.glob('*.py')): h.update(f.read_bytes())
     for f in sorted((scripts.parent/'assets'/'brand').glob('*.json')): h.update(f.read_bytes())
+    # Style profiles decide pixels exactly as the brand presets do, so editing
+    # one must invalidate every cached segment. Without this a profile change
+    # would silently resume pre-edit frames - the failure the key exists for.
+    for f in sorted((scripts.parent/'assets'/'style').glob('*.json')): h.update(f.read_bytes())
     seg=Path(seg_dir)
     for name in ('plan.json','transcript.json'):
         if (seg/name).exists(): h.update((seg/name).read_bytes())
