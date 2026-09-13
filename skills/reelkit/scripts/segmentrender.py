@@ -68,6 +68,50 @@ def shift_plan(plan,start,end):
     return q
 
 
+def file_sha(path, chunk=1<<20):
+    h=hashlib.sha256()
+    with open(path,'rb') as f:
+        for b in iter(lambda:f.read(chunk),b''): h.update(b)
+    return h.hexdigest()
+
+
+def segment_key(seg_dir, render_fps, reelkit_path):
+    """Fingerprint of the command and every input that decides this segment's
+    pixels, so a stale one can never be silently resumed.
+
+    Frame count alone cannot see a changed plan, a re-cut source, a different fps
+    or an edited card library - all of which change the render while leaving the
+    count identical. The pipeline scripts and the brand presets are in the key
+    because build is a pure function of them: change cards.py and last week's
+    segment is stale even though it still decodes perfectly."""
+    h=hashlib.sha256()
+    h.update(f'v1;fps={render_fps};quality=standard\n'.encode())
+    scripts=Path(reelkit_path).resolve().parent
+    for f in sorted(scripts.glob('*.py')): h.update(f.read_bytes())
+    for f in sorted((scripts.parent/'assets'/'brand').glob('*.json')): h.update(f.read_bytes())
+    seg=Path(seg_dir)
+    for name in ('plan.json','transcript.json'):
+        if (seg/name).exists(): h.update((seg/name).read_bytes())
+    media=seg/'public'/'input-video.mp4'
+    if media.exists(): h.update(file_sha(media).encode())
+    return h.hexdigest()
+
+
+def sidecar(out): return Path(str(out)+'.key.json')
+
+
+def reusable(out, frames, key):
+    """A segment may be resumed only when it decodes to the expected length AND
+    was produced from exactly these inputs."""
+    if not valid_video(out,frames): return False,'not a complete render'
+    meta=sidecar(out)
+    if not meta.exists(): return False,'no provenance sidecar - cannot prove what produced it'
+    try: got=json.loads(meta.read_text()).get('key')
+    except Exception: return False,'unreadable sidecar'
+    if got!=key: return False,'inputs changed since it was rendered'
+    return True,''
+
+
 def valid_video(p,frames=None):
     """Is this segment safe to resume from?
 
@@ -145,9 +189,16 @@ def main():
     if z.prepare_only:return
     for s in targets:
         out=Path(s['output'])
-        if valid_video(out,s['frames']):print('resume: keeping',out);continue
+        key=segment_key(s['project'],fps,z.reelkit)
+        ok,why=reusable(out,s['frames'],key)
+        if ok:print('resume: keeping',out);continue
+        if out.exists():print(f'resume: re-rendering {out.name} - {why}')
         run(['python3',z.reelkit,'build','--project',s['project']])
         run(['python3',z.reelkit,'render','--project',s['project'],'--out',out,'--workers',z.workers])
+        # Written only after a successful render, so an interrupted one leaves no
+        # claim behind and the next run redoes it.
+        sidecar(out).write_text(json.dumps({'key':key,'frames':s['frames'],'fps':fps,
+                                            'segment':s['id']},indent=1))
     concat=wd/'concat.txt';concat.write_text(''.join("file '%s'\n"%s['output'].replace("'","'\\''") for s in targets))
     # Segment AAC carries encoder priming at every boundary. Discard it: join only
     # rendered video and mux the original staged audio once, preserving exact sync.

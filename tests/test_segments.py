@@ -7,7 +7,7 @@ Both cases here shipped: boundaries computed in the wrong unit, and a resume
 check that kept a file it should have rejected. Neither is visible without
 rendering, so they get tests instead.
 """
-import subprocess,sys,tempfile,unittest
+import json,subprocess,sys,tempfile,unittest
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'skills/reelkit/scripts'))
@@ -125,6 +125,98 @@ class PreviewSubset(unittest.TestCase):
     def test_full_run_covers_everything(self):
         segs=self.segs()
         self.assertEqual(self.pick(segs,False,1),segs)
+
+
+class ReuseKeying(unittest.TestCase):
+    """A segment may only be resumed when it came from exactly these inputs.
+
+    Frame count cannot see a changed plan, a re-cut source or an edited card
+    library - each changes the render while leaving the count identical.
+    """
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); d=Path(self.tmp.name); self.addCleanup(self.tmp.cleanup)
+        self.seg=d/'segment-000'; (self.seg/'public').mkdir(parents=True)
+        (self.seg/'plan.json').write_text('{"meta":{"fps":30},"beats":[]}')
+        (self.seg/'transcript.json').write_text('[]')
+        (self.seg/'public'/'input-video.mp4').write_bytes(b'\x00'*2048)
+        self.rk=Path(sr.__file__).with_name('reelkit.py')
+
+    def key(self,fps=30): return sr.segment_key(self.seg,fps,self.rk)
+
+    def test_key_is_stable_for_unchanged_inputs(self):
+        self.assertEqual(self.key(),self.key())
+
+    def test_changed_plan_changes_the_key(self):
+        before=self.key()
+        (self.seg/'plan.json').write_text('{"meta":{"fps":30},"beats":[{"id":"b01"}]}')
+        self.assertNotEqual(before,self.key())
+
+    def test_recut_source_changes_the_key(self):
+        before=self.key()
+        (self.seg/'public'/'input-video.mp4').write_bytes(b'\x01'*2048)
+        self.assertNotEqual(before,self.key())
+
+    def test_changed_transcript_changes_the_key(self):
+        before=self.key()
+        (self.seg/'transcript.json').write_text('[{"text":"x","start":0,"end":1}]')
+        self.assertNotEqual(before,self.key())
+
+    def test_render_fps_changes_the_key(self):
+        """A 10fps segment must never satisfy a 30fps one."""
+        self.assertNotEqual(self.key(30),self.key(10))
+
+    def test_pipeline_code_is_in_the_key(self):
+        """Edit cards.py and last week's segment is stale, however well it decodes.
+
+        Uses a throwaway scripts dir rather than writing into the real one.
+        """
+        fake=Path(self.tmp.name)/'scripts'; (fake/'..'/'assets'/'brand').resolve().mkdir(parents=True,exist_ok=True)
+        fake.mkdir(); rk=fake/'reelkit.py'; rk.write_text('# v1\n')
+        before=sr.segment_key(self.seg,30,rk)
+        rk.write_text('# v2 - a card layout change\n')
+        self.assertNotEqual(before,sr.segment_key(self.seg,30,rk))
+
+    def test_brand_preset_is_in_the_key(self):
+        fake=Path(self.tmp.name)/'s2'; brand=fake.parent/'assets'/'brand'
+        fake.mkdir(); brand.mkdir(parents=True,exist_ok=True)
+        rk=fake/'reelkit.py'; rk.write_text('# x\n')
+        (brand/'assaf.json').write_text('{"accents":["#000"]}')
+        before=sr.segment_key(self.seg,30,rk)
+        (brand/'assaf.json').write_text('{"accents":["#fff"]}')
+        self.assertNotEqual(before,sr.segment_key(self.seg,30,rk))
+
+
+class ReuseDecision(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); self.d=Path(self.tmp.name); self.addCleanup(self.tmp.cleanup)
+        self.out=self.d/'segment-000.mp4'
+        subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi','-i','testsrc=size=640x480:rate=10:duration=2',
+                        '-c:v','libx264','-pix_fmt','yuv420p','-movflags','+faststart',str(self.out)],check=True)
+
+    def test_missing_sidecar_is_not_reusable(self):
+        """An unprovenanced file could have come from anything."""
+        ok,why=sr.reusable(self.out,20,'abc')
+        self.assertFalse(ok); self.assertIn('sidecar',why)
+
+    def test_matching_key_is_reusable(self):
+        sr.sidecar(self.out).write_text(json.dumps({'key':'abc'}))
+        ok,why=sr.reusable(self.out,20,'abc')
+        self.assertTrue(ok,why)
+
+    def test_stale_key_is_rejected(self):
+        sr.sidecar(self.out).write_text(json.dumps({'key':'old'}))
+        ok,why=sr.reusable(self.out,20,'new')
+        self.assertFalse(ok); self.assertIn('inputs changed',why)
+
+    def test_corrupt_sidecar_is_rejected(self):
+        sr.sidecar(self.out).write_text('{not json')
+        ok,why=sr.reusable(self.out,20,'abc')
+        self.assertFalse(ok); self.assertIn('sidecar',why)
+
+    def test_short_render_is_rejected_even_with_a_good_key(self):
+        sr.sidecar(self.out).write_text(json.dumps({'key':'abc'}))
+        ok,why=sr.reusable(self.out,999,'abc')
+        self.assertFalse(ok); self.assertIn('complete render',why)
 
 
 if __name__=='__main__': unittest.main()

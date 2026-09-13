@@ -381,9 +381,21 @@ that differ in occasional individual frames - four of five sampled frames hash
 equal, the fifth does not - at min SSIM 0.989 with identical audio. The synthetic
 sample does come out byte-identical, which is what makes this easy to miss. So
 the guarantee a kept segment carries is "an equally valid render of this
-segment", not "the same bytes". That predates segment reuse and applies to every
-resume the pipeline has ever done; it also means `renderdiff.py`'s exact-bitmap
-and SSIM >= 0.999 thresholds cannot pass on real video, only on the sample.
+segment", not "the same bytes". This is a property of the toolchain, not of
+segment reuse: it predates reuse and applies to every resume the pipeline has
+ever done, and successive delivery renders of one unchanged reel already vary
+byte to byte while each passes its gates. It does mean `renderdiff.py`'s
+exact-bitmap and SSIM >= 0.999 thresholds cannot pass on real video, only on the
+sample.
+
+**What makes reuse safe is therefore the key, not the bytes.** Every rendered
+segment gets a `segment-NNN.mp4.key.json` sidecar holding a hash of everything
+that decides its pixels - the segment's plan and transcript, the source clip, the
+render fps, and the pipeline scripts and brand presets that `build` is a pure
+function of. A segment is resumed only when that hash still matches *and* it
+decodes to the expected length; otherwise it is re-rendered with the reason
+printed. Edit one beat and only the segment carrying it is redone. The sidecar is
+written after a successful render, so an interrupted one leaves no claim behind.
 
 The trade is that a preview is now **short but real** rather than long and rough.
 To see the whole timeline quickly and throw it away, `reelkit.py render --preview`
