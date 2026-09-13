@@ -20,7 +20,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    split_canvas_h_face, detect_faces,
                    canvas_image_box, wants_plate, head_rect, head_clear_y)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
-import audiomix, style  # noqa: E402
+import audiomix, captionfx, style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -131,8 +131,9 @@ def caption_clips(words, br, dur, an, capcfg=None):
 
 
 # ------------------------------------------------------------------ theme css
-def theme_css(br):
+def theme_css(br, capcfg=None):
     A = br["accents"]
+    CAPSTROKE = captionfx.stroke_css(capcfg or {})
     return f"""
 :root{{--bg:{br['bg']};--text:{br['text']};--accent-0:{A[0]};--accent-1:{A[1]};
 --accent-2:{A[2]};--accent-3:{A[3]};--accent-4:{A[4]};}}
@@ -148,6 +149,21 @@ background:linear-gradient(180deg,rgba(5,6,10,0) 0%,rgba(5,6,10,.30) 45%,rgba(5,
 .card-host .card{{position:relative;width:100%;height:100%;overflow:hidden;}}
 .card-host .char{{display:inline-block;visibility:visible;}}
 .cap-host{{overflow:visible;}}
+/* Captions carry a heavy dark outline instead of a plate: legible over any
+   footage, and it costs nothing from the heavy-overlay budget. */
+.capline .cw{{{CAPSTROKE}}}
+/* Emphasis is TYPE - weight, italic serif, or one flat accent block. Never a
+   glowing container: no shadow, blur or gradient anywhere in here. */
+.capline .cw-highlight{{background:var(--accent-0);color:#0B0D12;border-radius:14px;
+ padding:0 .18em;-webkit-text-stroke:0;}}
+.capline .cw-serif{{font-family:Georgia,'Times New Roman',serif;font-style:italic;
+ font-weight:700;}}
+/* Emoji sit inside their word's span so bidi orders them with the word rather
+   than stranding them at whichever edge the line direction picked. */
+.capline .cemo{{margin-inline-start:.22em;-webkit-text-stroke:0;font-style:normal;}}
+/* The detonated keyword is SVG text fitted with textLength, so it cannot
+   overflow the canvas or be clipped in either direction. */
+.cdet{{display:block;width:100%;height:100%;overflow:visible;}}
 .cap-host .cw{{display:inline-block;}}
 .capline{{display:flex;flex-wrap:wrap;gap:8px 28px;justify-content:center;align-items:center;
 width:920px;margin:0 auto;padding:22px 30px;border-radius:28px;background:{br['captionPlate']};
@@ -823,9 +839,23 @@ def build(project, _layouts=None, _pass=1):
               br.get("captionHighlight") or br["accents"][0])
         top = int(plan.get("captions", {}).get("top", br["captionTop"]))
         hgt = int(plan.get("captions", {}).get("height", br["captionHeight"]))
+        emph = captionfx.normalise(plan.get("captions", {}).get("emphasis"))
+        det_cfg = caps_cfg.get("detonate") or {}
         for cp in caps:
-            ws = "".join(f'<span class="cw" id="{cp["id"]}-w{j}">{esc(w["text"])}</span>'
-                         for j, w in enumerate(cp["words"]))
+            ws = "".join(
+                captionfx.word_span(f'{cp["id"]}-w{j}', w["text"], captionfx.rule_for(w["text"], emph))
+                for j, w in enumerate(cp["words"]))
+            # A detonated keyword replaces its line for the line's duration and
+            # renders INSIDE the caption band - it is a caption, not an overlay,
+            # so it cannot drift onto the face.
+            det = [(j, w, r) for j, w in enumerate(cp["words"])
+                   if (r := captionfx.rule_for(w["text"], emph)) and r["style"] == "detonate"]
+            if det:
+                j, w, r = det[0]
+                ws = captionfx.detonation_svg(
+                    f'{cp["id"]}-det', w["text"], r["emoji"], W, hgt,
+                    hi, caps_cfg.get("strokeColor", "#05060A"),
+                    int(caps_cfg.get("strokeWidth", 0) or 0), br["font"])
             frag = (f'<div class="card" data-card-id="{cp["id"]}">\n<style>\n'
                     f'.card[data-card-id="{cp["id"]}"] .root {{ width:100%;height:100%;display:flex;'
                     f'align-items:center;justify-content:center; }}\n</style>\n'
@@ -838,7 +868,17 @@ def build(project, _layouts=None, _pass=1):
             sel = f"'.card-host[data-card-id=\"{cp['id']}\"]'"
             tls.append(f"tl.set({sel},{{visibility:'visible'}},{s});")
             tls.append(f"tl.fromTo({sel},{{opacity:0,y:14}},{{opacity:1,y:0,duration:0.16,ease:'power2.out'}},{s});")
+            if det:
+                # The word spans are gone - the line IS the keyword now. Pop and
+                # spring it in place; nothing moves it, so it stays in the band.
+                dsel = f"'.card[data-card-id=\"{cp['id']}\"] #{cp['id']}-det'"
+                tls.append(f"tl.fromTo({dsel},{{opacity:0,scale:{det_cfg.get('fromScale', 0.62)}}},"
+                           f"{{opacity:1,scale:1,duration:{det_cfg.get('duration', 0.42)},"
+                           f"ease:'{det_cfg.get('ease', 'back.out(2.4)')}',immediateRender:false}},"
+                           f"{an.q(max(s, cp['words'][det[0][0]]['start'] - 0.06))});")
             for j, w in enumerate(cp["words"]):
+                if det:
+                    break                 # no per-word karaoke on a detonated line
                 wsel = f"'.card[data-card-id=\"{cp['id']}\"] #{cp['id']}-w{j}'"
                 t0 = an.q(max(s, w["start"]))
                 t1 = an.q(min(e - 0.02, max(w["end"], t0 + 0.14)))
@@ -896,7 +936,7 @@ def build(project, _layouts=None, _pass=1):
 <head><meta charset="utf-8"/>
 <style>
 {fonts}
-{theme_css(br)}
+{theme_css(br, caps_cfg)}
 </style></head>
 <body>
 <div id="stage" data-composition-id="reelkit" data-start="0"

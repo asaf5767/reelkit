@@ -37,7 +37,8 @@ MAX_EXTENDS = 8
 # today; anything else is refused by name. Sections arrive with the capability
 # that consumes them, never ahead of it.
 SCHEMA = {
-    "captions": {"maxWords", "maxChars", "size", "top", "height"},
+    "captions": {"maxWords", "maxChars", "size", "top", "height",
+                 "strokeWidth", "strokeColor", "detonate", "maxDetonations"},
     "motion": {"defaults", "kinds"},
     "pacing": {"dwellMin", "dwellMax", "severity"},
     # Slice 2. Voice processing and cue ducking are preferences; cue PLACEMENT
@@ -245,6 +246,20 @@ def motion_for(resolved, kind):
     for prim, spec in ((m.get("kinds") or {}).get(kind) or {}).items():
         out[prim] = _merge(out.get(prim) or {}, spec)
     return out
+
+
+def caption_findings(resolved, caps, plan):
+    """Detonation is sparse by construction: past the cap it stops reading as
+    emphasis and starts reading as a template."""
+    import captionfx
+    cfg = resolved.get("captions") or {}
+    cap = cfg.get("maxDetonations")
+    sev = (resolved.get("pacing") or {}).get("severity", "off")
+    if cap is None or sev == "off":
+        return []
+    return captionfx.detonation_findings(
+        caps, captionfx.normalise((plan.get("captions") or {}).get("emphasis")),
+        cap, "ERROR" if sev == "error" else "WARN")
 
 
 def doodle_findings(resolved, plan):
