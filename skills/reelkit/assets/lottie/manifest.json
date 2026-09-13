@@ -1,0 +1,26 @@
+{
+ "ring-pop": {
+  "license": "CC0-1.0",
+  "author": "reelkit",
+  "source": "authored for this repo",
+  "frames": 45,
+  "fps": 30,
+  "size": [
+   200,
+   200
+  ],
+  "note": "stroke and solid fills only - no gradients, no masks, no image assets"
+ },
+ "tick-in": {
+  "license": "CC0-1.0",
+  "author": "reelkit",
+  "source": "authored for this repo",
+  "frames": 45,
+  "fps": 30,
+  "size": [
+   200,
+   200
+  ],
+  "note": "stroke and solid fills only - no gradients, no masks, no image assets"
+ }
+}

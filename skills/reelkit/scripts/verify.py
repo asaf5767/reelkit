@@ -27,7 +27,7 @@ from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
                    head_rect, head_clear_y)  # noqa: E402
 from reelkit import container_problems  # noqa: E402
 from geometry import measure_cards, SCALE_FLOOR, HAVE_PW  # noqa: E402
-import heavy, mcache, progress as pgmod, style  # noqa: E402
+import heavy, lottiefx, mcache, progress as pgmod, style  # noqa: E402
 from reelkit import HF  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -315,6 +315,18 @@ def run(project, as_json, fix):
     sty, _prov = style.for_plan(plan)
     findings.extend(style.pacing_findings(sty, plan))
     findings.extend(style.doodle_findings(sty, plan))
+
+    # A badge is an overlay, so it obeys the same two boundaries as every other
+    # overlay: never the head, never the caption band.
+    for b in plan["beats"]:
+        bd = b.get("badge")
+        if not bd:
+            continue
+        if isinstance(bd, str):
+            bd = {"name": bd}
+        f = faces.get(b["id"])
+        findings.extend(lottiefx.problems(b["id"], W, H, cap_top,
+                                          head_rect(f) if f else None, bd, cap_on, cap_h))
 
     # Lower-thirds live in the narrow band between the chin and the captions,
     # and both neighbours move: a close framing lowers the head, a plan can
