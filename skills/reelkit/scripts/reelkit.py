@@ -19,6 +19,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    lang_direction as cards_lang_direction, split_canvas_h,
                    split_canvas_h_face, detect_faces,
                    canvas_image_box, wants_plate, head_rect, head_clear_y)
+from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -432,11 +433,53 @@ def ensure_mandatory_hook(project, plan, words):
 
 
 # ------------------------------------------------------------------ build
-def build(project):
+def fit_pass(project, plan, W, H, already):
+    """Resolve every over-the-footage card against what was actually rendered.
+
+    Runs after the cards exist, because a card's height is content-driven and
+    only a browser knows it. Returns (layouts_to_apply, blocked) where blocked
+    names the beats no layout can save - those stop the build rather than
+    reaching a render that the verify gate would fail anyway.
+
+    Skipped silently when Playwright or OpenCV is absent: build is not the gate,
+    `verify` is, and it still refuses to let an unmeasured reel through."""
+    vid = os.path.join(project, "public", "input-video.mp4")
+    beats = [b for b in plan["beats"] if b.get("mode", "top") in ("top", "stage")]
+    if not beats or not os.path.exists(vid):
+        return {}, []
+    boxes = measure_cards(project, plan, W, H)
+    if not boxes:
+        return {}, []
+    times = {b["id"]: [b["start"] + (b["end"] - b["start"]) * f for f in (0.2, 0.5, 0.8)]
+             for b in beats}
+    faces = detect_faces(vid, times, W, H)
+    if not faces:
+        return {}, []
+    out, blocked = {}, []
+    for b in beats:
+        cid = b["id"]
+        lay, why = fit_layout(boxes.get(cid), faces.get(cid), b.get("layout"), head_clear_y)
+        if why:
+            blocked.append((cid, why))
+        elif lay is not None and lay != (b.get("layout") or {}):
+            if already and already.get(cid) == lay:
+                continue                    # already applied; do not loop
+            out[cid] = lay
+    return out, blocked
+
+
+def build(project, _layouts=None, _pass=1):
     plan_path = os.path.join(project, "plan.json")
     if not os.path.exists(plan_path):
         die("no plan.json in project - see references/plan-schema.md")
     plan = json.load(open(plan_path, encoding="utf-8"))
+    # Pass 2 rebuilds with the layouts the fit pass resolved against measured
+    # geometry. plan.json is never touched: build stays a pure function of the
+    # plan plus the media, so the same inputs still produce the same HTML.
+    if _layouts:
+        for b in plan["beats"]:
+            if b["id"] in _layouts:
+                b["layout"] = _layouts[b["id"]]
     meta = plan.get("meta", {})
     fps = int(meta.get("fps", 30)); W = int(meta.get("width", 1080)); H = int(meta.get("height", 1920))
     an = Anim(fps)
@@ -588,9 +631,15 @@ def build(project):
                 missing.append(cid)
 
         if img:
-            box = img.get("box") or ([70, 300, 940, 700] if mode == "stage"
-                                     else ([70, 220, 940, 480] if mode == "full"
-                                           else [70, 140, 940, 480]))
+            # Derived, never authored. A plan-supplied box was advisory and drifted
+            # from the CSS that actually lays the frame out, so a generator made
+            # artwork for a box that did not exist. `full` never reaches here -
+            # a still image in full mode is rejected in the static checks above.
+            if img.get("box"):
+                warn.append(f"beat {cid}: image.box is ignored - the slot box is "
+                            f"derived from the CSS; delete it from the plan")
+            box = image_slot_box(mode, beat.get("layout"),
+                                 wants_plate(kind, beat), W)
             visuals.append({
                 "id": cid, "start": st, "end": en, "kind": kind,
                 "file": f"public/images/{cid}.png", "present": has_img,
@@ -840,6 +889,15 @@ window.__timelines["reelkit"] = tl;
                 "\n\n## Card-entry hit points (seconds)\n\nDrop a music bed and land accents on:\n\n" +
                 ", ".join(f"{h:.2f}" for h in hits) + "\n")
     open(os.path.join(project, "BEATS.md"), "w", encoding="utf-8").write(beats_md)
+
+    refit, blocked = fit_pass(project, plan, W, H, _layouts) if _pass == 1 else ({}, [])
+    if blocked:
+        die("card geometry cannot clear the speaker's head:\n" +
+            "\n".join(f"  {cid}: {why}" for cid, why in blocked))
+    if refit:
+        for cid, lay in sorted(refit.items()):
+            print(f"reelkit: fit {cid} -> {lay} (measured against the detected head)")
+        return build(project, refit, _pass=2)
 
     for w in warn:
         print(f"reelkit: ! {w}")
