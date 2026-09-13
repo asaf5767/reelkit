@@ -4,3 +4,6 @@ videos/
 public/snapshots/
 __pycache__/
 .DS_Store
+
+# the bundled CC0 sfx pack is source, not generated media
+!skills/reelkit/assets/sfx/*.mp3

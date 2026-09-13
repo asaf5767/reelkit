@@ -988,16 +988,40 @@ SFX_SEARCH = [
 ]
 
 
+BUNDLED_SFX = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "assets", "sfx")
+
+
 def find_sfx_dir(explicit=None):
-    """Locate the media-use bundled SFX library. Not vendored into reelkit: the
-    Pixabay licence covers using these inside a rendered video, but not
-    re-hosting the raw files in a public repo."""
-    cands = ([explicit] if explicit else []) + SFX_SEARCH
+    """Locate the SFX library.
+
+    media-use first when it is installed - its Pixabay-licensed files are richer,
+    and they can be used inside a rendered video even though they cannot be
+    re-hosted here. Then reelkit's own CC0 pack (assets/sfx), which ships in the
+    repo and is what a clean clone, CI or a Kaggle kernel actually gets. The
+    synthesized stand-ins are the last resort, per name rather than per library -
+    see sfx_src()."""
+    cands = ([explicit] if explicit else []) + SFX_SEARCH + [BUNDLED_SFX]
     for c in cands:
         d = os.path.expanduser(c)
         if os.path.isdir(d):
             return d
     return None
+
+
+def sfx_src(sdir, name):
+    """Path to one cue, falling back to the synthesized stand-in for a name the
+    chosen library does not carry. Per-name, because no real library covers every
+    cue: the CC0 pack has no `riser`, and a missing name used to mean silence at
+    that edit point."""
+    src = os.path.join(sdir, f"{name}.mp3")
+    if os.path.exists(src):
+        return src, sdir
+    syn = os.path.join(synth_sfx_dir(), f"{name}.mp3")
+    if os.path.exists(syn):
+        print(f"reelkit: sfx '{name}' not in the library - synthesized stand-in")
+        return syn, os.path.dirname(syn)
+    return None, sdir
 
 
 _SR = 44100
@@ -1345,23 +1369,22 @@ def resolve_sfx(plan, pub, dur, an):
     sdir = find_sfx_dir(plan.get("audio", {}).get("sfxDir"))
     if not sdir:
         sdir = synth_sfx_dir()
-        print("reelkit: bundled sfx library not found - using synthesized stand-ins "
-              "(~/.cache/reelkit/sfx-synth). Install the HyperFrames media-use skill "
-              "for the real sounds.")
+        print("reelkit: no sfx library found - using synthesized stand-ins "
+              "(~/.cache/reelkit/sfx-synth).")
 
     os.makedirs(os.path.join(pub, "sfx"), exist_ok=True)
     files, out, tracks = {}, [], []          # tracks[i] = end time of last cue on track i
     for c in sorted(cues, key=lambda x: x["at"]):
         if c["name"] not in files:
-            src = os.path.join(sdir, f"{c['name']}.mp3")
-            if not os.path.exists(src):
+            src, from_dir = sfx_src(sdir, c["name"])
+            if not src:
                 print(f"reelkit: ! no sfx named '{c['name']}' - skipped")
                 files[c["name"]] = None
             else:
                 dst = os.path.join(pub, "sfx", f"{c['name']}.mp3")
                 shutil.copy2(src, dst)
                 files[c["name"]] = (f"{c['name']}.mp3",
-                                    sfx_duration(sdir, c["name"], f"{c['name']}.mp3"),
+                                    sfx_duration(from_dir, c["name"], f"{c['name']}.mp3"),
                                     sfx_gain(dst, float(plan.get("audio", {}).get("sfxTargetDb", -11.0))),
                                     sfx_lead_silence(dst))
         got = files[c["name"]]
@@ -1855,7 +1878,10 @@ def doctor():
     except Exception:
         print("  OPT opencv      not installed - `verify` face checks skipped (everything else runs)")
     sfx = find_sfx_dir()
-    print(f"  {'OK ' if sfx else 'OPT'} sfx        {sfx or 'media-use skill not found - sfx cues will be skipped'}")
+    which = ("media-use" if sfx and "media-use" in sfx else
+             "bundled CC0 pack" if sfx == BUNDLED_SFX else "custom")
+    print(f"  {'OK ' if sfx else 'MISS'} sfx        "
+          f"{sfx + ' (' + which + ')' if sfx else 'no library and assets/sfx is missing - broken checkout'}")
     print("\nRender/snapshot on a slow or headless box needs:\n"
           "  PRODUCER_PAGE_NAVIGATION_TIMEOUT_MS=90000 PRODUCER_PLAYER_READY_TIMEOUT_MS=90000")
     return 0 if ok else 1

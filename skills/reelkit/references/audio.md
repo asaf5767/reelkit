@@ -39,9 +39,11 @@ down when speech is present). `audio.voiceDuck: false` disables it.
 
 A reel with beats and no SFX is a defect, and the pipeline treats it that way:
 `build` dies when a plan has beats but resolves zero cues (unless
-`audio.autoSfx: false` waives sound explicitly). The bundled library is
-preferred; when it is missing, reelkit synthesizes stand-ins for every standard
-name into `~/.cache/reelkit/sfx-synth` (created here, no licence concerns) and
+`audio.autoSfx: false` waives sound explicitly). Libraries are tried in order -
+media-use if installed, then reelkit's own CC0 pack in `assets/sfx` (bundled, so
+a clean clone and a Kaggle kernel both have real sounds). Resolution then falls
+back **per cue name**, not per library: any name the chosen library lacks - the
+CC0 pack has no `riser` - is synthesized into `~/.cache/reelkit/sfx-synth` and
 prints that it did so. "Continuing without sfx" no longer exists as a path.
 
 ### Where the sounds come from
