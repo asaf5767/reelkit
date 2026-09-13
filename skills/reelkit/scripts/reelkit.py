@@ -1819,6 +1819,11 @@ def render_project(project, output, workers=None, preview=False, checkpoint_dir=
     if software_gpu: cmd.append("--no-browser-gpu")
     print("reelkit: " + ("preview" if preview else "full") +
           f" render ({render_fps}fps, {'draft' if preview else 'standard'})")
+    if preview:
+        # segmentrender.py --preview renders leading segments at full fidelity and
+        # a later full render resumes them. This lane trades that away for speed.
+        print("reelkit: this draft is throwaway - a full render cannot reuse any of "
+              "it. For a preview whose work carries over, use segmentrender.py --preview")
     r = subprocess.run(cmd, cwd=project)
     if r.returncode or not os.path.exists(raw):
         die(f"HyperFrames render failed with exit {r.returncode}")

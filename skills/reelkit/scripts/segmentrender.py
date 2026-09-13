@@ -83,55 +83,72 @@ def valid_video(p,frames=None):
     return got>0 if frames is None else abs(got-frames)<=1
 
 
+def select_targets(segs, preview, n):
+    """Which segments this run renders. A preview takes the leading ones; every
+    other property - boundaries, output paths, expected frame counts - is
+    identical to a full run, which is what lets the full pass resume them."""
+    return segs[:max(1,min(n,len(segs)))] if preview else segs
+
+
+def prepare(src, wd, plan, transcript, fps, bounds, i, st, en):
+    """Materialise one segment subproject. Idempotent: an already-trimmed source
+    with the right frame count is left alone, so preparing a subset first and the
+    rest later costs nothing twice."""
+    seg=wd/f'segment-{i:03d}'; pub=seg/'public'; pub.mkdir(parents=True,exist_ok=True)
+    for name in ['fonts','images','sfx','vendor']:
+        if (src/'public'/name).exists() and not (pub/name).exists(): shutil.copytree(src/'public'/name,pub/name)
+    for name in ['ASSETS.md']:
+        if (src/name).exists():shutil.copy2(src/name,seg/name)
+    sp=shift_plan(plan,st,en); sp['meta']['trimTail'] = (i == len(bounds)-2 and plan.get('meta',{}).get('trimTail',True));json.dump(sp,open(seg/'plan.json','w'),ensure_ascii=False,indent=2)
+    tw=[]
+    for w in transcript:
+        # Keep and clip boundary-crossing words rather than silently losing a caption.
+        if float(w['end']) > st and float(w['start']) < en:
+            v=dict(w);v['start']=round(max(0,float(w['start'])-st),4);v['end']=round(min(en-st,float(w['end'])-st),4)
+            if v['end']>v['start']:tw.append(v)
+    json.dump(tw,open(seg/'transcript.json','w'),ensure_ascii=False,indent=2)
+    media=pub/'input-video.mp4'
+    if not valid_video(media,round((en-st)*fps)):
+        tmp=str(media)+'.tmp.mp4';run(['ffmpeg','-y','-v','error','-i',src/'public/input-video.mp4','-filter_complex',f'[0:v]trim=start={st}:end={en},setpts=PTS-STARTPTS,fps={fps}[v];[0:a]atrim=start={st}:end={en},asetpts=PTS-STARTPTS[a]','-map','[v]','-map','[a]','-c:v','libx264','-preset','veryfast','-crf','17','-g',fps,'-keyint_min',fps,'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k',tmp]);os.replace(tmp,media)
+
+
 def main():
     a=argparse.ArgumentParser();a.add_argument('--project',required=True);a.add_argument('--out',required=True)
     a.add_argument('--work-dir',required=True);a.add_argument('--segment-seconds',type=float,default=12)
-    a.add_argument('--workers',type=int,default=2);a.add_argument('--preview',action='store_true')
+    a.add_argument('--workers',type=int,default=2)
+    a.add_argument('--preview',action='store_true',
+                   help='render only the leading segments, at full fidelity, into the same '
+                        'segment files a full render uses - so the full pass resumes them')
+    a.add_argument('--preview-segments',type=int,default=1,help='how many leading segments --preview covers')
     a.add_argument('--prepare-only',action='store_true');a.add_argument('--reelkit',default=str(Path(__file__).with_name('reelkit.py')))
     z=a.parse_args(); src=Path(z.project).resolve(); wd=Path(z.work_dir).resolve();wd.mkdir(parents=True,exist_ok=True)
     plan=json.load(open(src/'plan.json')); transcript=json.load(open(src/'transcript.json')); fps=int(plan.get('meta',{}).get('fps',30))
     duration=float(probe(str(src/'public/input-video.mp4'))); bounds=boundaries(plan,duration,z.segment_seconds)
-    # A preview segment is 10fps draft and a full segment is authored fps at
-    # standard quality. They are different artefacts, so they get different
-    # paths: sharing one meant the resume check kept whatever was on disk and a
-    # full render silently shipped the preview's draft frames.
-    render_fps=min(fps,10) if z.preview else fps
-    suffix='.preview' if z.preview else ''
-    manifest={'version':2,'source':str(src),'fps':fps,'renderFps':render_fps,
-              'fidelity':'preview' if z.preview else 'full','duration':duration,
-              'boundaries':bounds,'segments':[]}
-    for i,(st,en) in enumerate(zip(bounds,bounds[1:])):
-        seg=wd/f'segment-{i:03d}'; pub=seg/'public'; pub.mkdir(parents=True,exist_ok=True)
-        for name in ['fonts','images','sfx','vendor']:
-            if (src/'public'/name).exists() and not (pub/name).exists(): shutil.copytree(src/'public'/name,pub/name)
-        for name in ['ASSETS.md']:
-            if (src/name).exists():shutil.copy2(src/name,seg/name)
-        sp=shift_plan(plan,st,en); sp['meta']['trimTail'] = (i == len(bounds)-2 and plan.get('meta',{}).get('trimTail',True));json.dump(sp,open(seg/'plan.json','w'),ensure_ascii=False,indent=2)
-        tw=[]
-        for w in transcript:
-            # Keep and clip boundary-crossing words rather than silently losing a caption.
-            if float(w['end']) > st and float(w['start']) < en:
-                v=dict(w);v['start']=round(max(0,float(w['start'])-st),4);v['end']=round(min(en-st,float(w['end'])-st),4)
-                if v['end']>v['start']:tw.append(v)
-        json.dump(tw,open(seg/'transcript.json','w'),ensure_ascii=False,indent=2)
-        media=pub/'input-video.mp4'; expected=round((en-st)*render_fps)
-        # The trimmed source is cut at the authored fps regardless of render
-        # fidelity. Give the check that expectation too: without one it can only
-        # ask "does anything decode", which a truncated clip still answers yes to.
-        if not valid_video(media,round((en-st)*fps)):
-            tmp=str(media)+'.tmp.mp4';run(['ffmpeg','-y','-v','error','-i',src/'public/input-video.mp4','-filter_complex',f'[0:v]trim=start={st}:end={en},setpts=PTS-STARTPTS,fps={fps}[v];[0:a]atrim=start={st}:end={en},asetpts=PTS-STARTPTS[a]','-map','[v]','-map','[a]','-c:v','libx264','-preset','veryfast','-crf','17','-g',fps,'-keyint_min',fps,'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k',tmp]);os.replace(tmp,media)
-        manifest['segments'].append({'id':i,'start':st,'end':en,'frames':expected,'project':str(seg),'output':str(wd/f'segment-{i:03d}{suffix}.mp4')})
+    # Every segment is rendered at the authored fps and standard quality, preview
+    # or not. A preview is a SUBSET of the full render's segments, never a
+    # lower-fidelity version of all of them - that is what makes its output
+    # reusable instead of something the full pass has to throw away and redo.
+    segs=[{'id':i,'start':st,'end':en,'frames':round((en-st)*fps),
+           'project':str(wd/f'segment-{i:03d}'),'output':str(wd/f'segment-{i:03d}.mp4')}
+          for i,(st,en) in enumerate(zip(bounds,bounds[1:]))]
+    targets=select_targets(segs,z.preview,z.preview_segments); n=len(targets)
+    manifest={'version':3,'source':str(src),'fps':fps,'renderFps':fps,'fidelity':'full',
+              'mode':'preview-subset' if z.preview else 'full','coveredSegments':n,
+              'duration':duration,'boundaries':bounds,'segments':segs}
+    for s in targets: prepare(src,wd,plan,transcript,fps,bounds,s['id'],s['start'],s['end'])
     json.dump(manifest,open(wd/'manifest.json','w'),indent=2)
-    print('prepared',len(manifest['segments']),'durable segments:',bounds)
+    covered=round(targets[-1]['end']-targets[0]['start'],2) if targets else 0
+    print(f"prepared {len(targets)} of {len(segs)} durable segments: {bounds}")
+    if z.preview:
+        print(f"preview: rendering segments 0-{n-1} ({covered}s of {round(duration,2)}s) at "
+              f"{fps}fps standard - a full render over this work-dir resumes them")
     if z.prepare_only:return
-    for s in manifest['segments']:
+    for s in targets:
         out=Path(s['output'])
         if valid_video(out,s['frames']):print('resume: keeping',out);continue
         run(['python3',z.reelkit,'build','--project',s['project']])
-        cmd=['python3',z.reelkit,'render','--project',s['project'],'--out',out,'--workers',z.workers]
-        if z.preview:cmd.append('--preview')
-        run(cmd)
-    concat=wd/'concat.txt';concat.write_text(''.join("file '%s'\n"%s['output'].replace("'","'\\''") for s in manifest['segments']))
+        run(['python3',z.reelkit,'render','--project',s['project'],'--out',out,'--workers',z.workers])
+    concat=wd/'concat.txt';concat.write_text(''.join("file '%s'\n"%s['output'].replace("'","'\\''") for s in targets))
     # Segment AAC carries encoder priming at every boundary. Discard it: join only
     # rendered video and mux the original staged audio once, preserving exact sync.
     video=wd/'joined-video.mp4';run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',concat,'-map','0:v:0','-an','-c','copy',video])

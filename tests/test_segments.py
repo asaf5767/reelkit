@@ -69,7 +69,7 @@ class ResumeSafety(unittest.TestCase):
         self.assertTrue(sr.valid_video(self.good,20))
 
     def test_wrong_frame_count_is_rejected(self):
-        """A 10fps preview segment must never satisfy a 30fps full segment."""
+        """A short or damaged segment must never satisfy a full-length one."""
         self.assertFalse(sr.valid_video(self.good,60))
 
     def test_truncated_segment_is_rejected(self):
@@ -83,6 +83,48 @@ class ResumeSafety(unittest.TestCase):
 
     def test_stub_file_is_rejected(self):
         self.assertFalse(sr.valid_video(self.tiny)); self.assertFalse(sr.valid_video(Path('/nope.mp4')))
+
+
+class PreviewSubset(unittest.TestCase):
+    """--preview renders leading segments at full fidelity, not all of them at draft.
+
+    The selection is what makes the work reusable, so it is worth pinning: same
+    boundaries, same output paths, same expected frame counts as a full run.
+    """
+    def segs(self,dur=47.43,target=12,fps=30):
+        b=sr.boundaries(PLAN,dur,target)
+        return [{'id':i,'start':st,'end':en,'frames':round((en-st)*fps),
+                 'output':f'segment-{i:03d}.mp4'} for i,(st,en) in enumerate(zip(b,b[1:]))]
+
+    def pick(self,segs,preview,n):
+        return sr.select_targets(segs,preview,n)
+
+    def test_preview_is_a_prefix_of_the_full_segment_list(self):
+        segs=self.segs()
+        for n in (1,2,3):
+            sub=self.pick(segs,True,n)
+            self.assertEqual(sub,segs[:len(sub)],'preview must be a leading subset')
+
+    def test_preview_segments_share_the_full_output_paths(self):
+        """Same path is the point: a full render then resumes them."""
+        segs=self.segs()
+        for a,b in zip(self.pick(segs,True,2),self.pick(segs,False,0)):
+            self.assertEqual(a['output'],b['output'])
+
+    def test_preview_expects_full_fidelity_frame_counts(self):
+        """A 10fps count here would make the full pass reject and redo the work."""
+        segs=self.segs()
+        for x in self.pick(segs,True,2):
+            self.assertEqual(x['frames'],round((x['end']-x['start'])*30))
+
+    def test_preview_count_is_clamped(self):
+        segs=self.segs()
+        self.assertEqual(len(self.pick(segs,True,99)),len(segs))
+        self.assertEqual(len(self.pick(segs,True,0)),1)
+
+    def test_full_run_covers_everything(self):
+        segs=self.segs()
+        self.assertEqual(self.pick(segs,False,1),segs)
 
 
 if __name__=='__main__': unittest.main()

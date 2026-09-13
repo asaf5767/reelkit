@@ -354,23 +354,41 @@ python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/
   --segment-seconds 12 --workers 2 --out final.mp4
 ```
 
-**Preview and full never share segment files.** A preview segment is 10fps draft
-and a full segment is authored fps at standard quality - different artefacts, so
-they get different paths (`segment-000.preview.mp4` vs `segment-000.mp4`) and the
-resume check compares decoded frame counts against the fidelity being rendered.
-They used to share one path and a check that only asked "does this decode", so a
-full render over a preview work-dir kept the draft segments and shipped them.
+**`--preview` renders a subset, not a lower-fidelity copy.** This is a change of
+meaning: it used to render the whole timeline at 10fps draft, which produced
+nothing the full pass could use. It now renders the **leading segments at the
+authored fps and standard quality**, into the same `segment-NNN.mp4` files a full
+render writes — so a full render over the same work-dir resumes them instead of
+redoing them.
 
-**What reuse is actually available.** Only same-fidelity reuse: a full render
-resumes full segments, a preview resumes preview ones. Nothing crosses, because
-a 10fps segment carries no frame a 30fps output can use.
+```bash
+# look at the first ~12s for real, then finish the rest later
+python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/segments \
+  --segment-seconds 12 --preview --preview-segments 1 --out preview.mp4
+python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/segments \
+  --segment-seconds 12 --out final.mp4          # resumes segment 0, renders the rest
+```
+
+A preview segment is byte-identical to the same segment from a full render
+(verified by sha256), which is what makes the reuse safe rather than merely
+plausible. Measured on the 12s sample: a cold full render is 73s; a 2-of-3
+preview followed by a full render is 48s + 28s, so the preview costs about 4%
+instead of a duplicated pass.
+
+The trade is that a preview is now **short but real** rather than long and rough.
+To see the whole timeline quickly and throw it away, `reelkit.py render --preview`
+still does 10fps draft over everything — it just produces nothing reusable.
+
+**What reuse is available.** Same-fidelity only, which is now everything the
+segmented path produces. A 10fps draft carries no frame a 30fps output can use,
+which is precisely why the preview stopped being one.
 
 HyperFrames' extracted-frame cache (`--frames-cache-dir` /
-`HYPERFRAMES_EXTRACT_CACHE_DIR`) does not bridge the two either: its key includes
+`HYPERFRAMES_EXTRACT_CACHE_DIR`) does not help across fps either: its key includes
 the render fps and frames inside a bucket are indexed sequentially, so a 10fps
 bucket's `frame_00005` is a different moment from a 30fps bucket's. Measured on
-the 12s sample, a preview left 120 cached frames and the full render then added
-360 more, reusing none. Pointing both passes at one cache directory is still
-worth doing for repeated renders at the *same* fidelity - but measured there it
-was worth about 6% (51s cold, 48s fully warm), because the cost is Chrome capture,
-not frame extraction. Do not go looking for a big win in that cache.
+the 12s sample under the old semantics, a preview left 120 cached frames and the
+full render then added 360 more, reusing none. Pointing both passes at one cache
+directory is still worth doing for repeated renders — but measured it was worth
+about 6% (51s cold, 48s fully warm), because the cost is Chrome capture, not
+frame extraction. Do not go looking for a big win in that cache.
