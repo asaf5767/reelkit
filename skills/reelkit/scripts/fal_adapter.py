@@ -28,6 +28,8 @@ def main():
  images=result.get('images') or result.get('data',{}).get('images') or []
  if not images: raise SystemExit('fal returned no image')
  url=images[0].get('url'); Path(a.out).parent.mkdir(parents=True,exist_ok=True)
- urllib.request.urlretrieve(url,a.out)
+ tmp=str(a.out)+'.download'; urllib.request.urlretrieve(url,tmp)
+ from PIL import Image
+ Image.open(tmp).convert('RGB').save(a.out,'PNG'); os.remove(tmp)
  print(json.dumps({'model':a.model,'output':a.out,'request_id':first.get('request_id')}))
 if __name__=='__main__':main()
