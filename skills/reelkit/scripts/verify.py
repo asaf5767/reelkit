@@ -75,7 +75,7 @@ def run(project, as_json, fix):
 
     times = {b["id"]: [b["start"] + (b["end"] - b["start"]) * f for f in (0.2, 0.5, 0.8)]
              for b in plan["beats"]}
-    faces = detect_faces(vid, times, W, H) if os.path.exists(vid) else {}
+    faces = detect_faces(vid, times, W, H, cache_dir=project) if os.path.exists(vid) else {}
     boxes = measure_cards(project, plan, W, H) if HAVE_PW else {}
 
     findings, report = [], []

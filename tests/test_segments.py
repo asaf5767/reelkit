@@ -219,4 +219,65 @@ class ReuseDecision(unittest.TestCase):
         self.assertFalse(ok); self.assertIn('complete render',why)
 
 
+class DecodedFrameCount(unittest.TestCase):
+    """The count is a full decode - 16.5s on a 47s source, paid on every pass by
+    both the prepare check and the resume check. It is cached against size and
+    mtime, and the cache must never outlive the file it describes."""
+
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); self.d=Path(self.tmp.name); self.addCleanup(self.tmp.cleanup)
+        self.out=self.d/'segment-000.mp4'
+        self.make(self.out,2)
+
+    def make(self,path,seconds):
+        subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi',
+                        '-i',f'testsrc=size=320x240:rate=10:duration={seconds}',
+                        '-c:v','libx264','-pix_fmt','yuv420p','-movflags','+faststart',str(path)],check=True)
+
+    def test_count_is_cached_and_matches_a_fresh_decode(self):
+        first=sr.decoded_frames(self.out)
+        self.assertTrue(sr.counted(self.out).exists(),'no count cache written')
+        self.assertEqual(sr.decoded_frames(self.out),first)
+
+    def test_cached_value_is_actually_used(self):
+        """Proven by poisoning the cache: if probe still ran, the real count wins."""
+        sr.decoded_frames(self.out)
+        c=json.loads(sr.counted(self.out).read_text()); c['frames']=4242
+        sr.counted(self.out).write_text(json.dumps(c))
+        self.assertEqual(sr.decoded_frames(self.out),4242)
+
+    def test_rewriting_the_file_invalidates_the_count(self):
+        """A longer re-render at the same path must not keep the old count."""
+        short=sr.decoded_frames(self.out)
+        self.make(self.out,4)
+        self.assertNotEqual(sr.decoded_frames(self.out),short)
+
+    def test_truncation_invalidates_the_count(self):
+        """The failure this whole check exists for: size changes, so the stale
+        count cannot make a damaged segment look complete."""
+        full=sr.decoded_frames(self.out)
+        with open(self.out,'r+b') as f: f.truncate(self.out.stat().st_size//3)
+        self.assertNotEqual(sr.decoded_frames(self.out),full)
+        self.assertFalse(sr.valid_video(self.out,full))
+
+    def test_corrupt_count_cache_falls_back_to_decoding(self):
+        sr.counted(self.out).write_text('{not json')
+        self.assertGreater(sr.decoded_frames(self.out),0)
+
+    def test_uncountable_file_is_none_not_zero(self):
+        """None means "could not measure" and must not read as an empty video."""
+        bad=self.d/'notavideo.mp4'; bad.write_bytes(b'x'*20000)
+        self.assertIsNone(sr.decoded_frames(bad))
+        self.assertFalse(sr.valid_video(bad))
+
+    def test_missing_file_is_none(self):
+        self.assertIsNone(sr.decoded_frames(self.d/'gone.mp4'))
+
+    def test_reuse_still_rejects_a_short_render_through_the_cache(self):
+        sr.sidecar(self.out).write_text(json.dumps({'key':'abc'}))
+        sr.decoded_frames(self.out)                     # warm the cache first
+        ok,why=sr.reusable(self.out,999,'abc')
+        self.assertFalse(ok); self.assertIn('complete render',why)
+
+
 if __name__=='__main__': unittest.main()

@@ -8,3 +8,7 @@ __pycache__/
 # the bundled CC0 sfx pack is source, not generated media
 !skills/reelkit/assets/sfx/*.mp3
 checkpoints/
+
+# measurement + frame-count caches: derived, per-project, never source
+.measure-cache.json
+*.count.json

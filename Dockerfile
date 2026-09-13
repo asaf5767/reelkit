@@ -37,8 +37,13 @@ RUN pip install --no-cache-dir -r /tmp/requirements-verify.txt pillow numpy \
 
 # Warm the HyperFrames CLI and its render skill into the image so a cold worker
 # does not npx-download them on the first job.
-RUN npx --yes hyperframes@latest --version \
- && npx --yes hyperframes@latest skills update talking-head-recut
+# HF_VERSION must match reelkit.py's HF_VERSION: the image warms one version and
+# the pipeline asks for another otherwise, which re-downloads at render time and
+# quietly renders on a different renderer than the one this image was tested on.
+# The check below fails the build rather than shipping that mismatch.
+ARG HF_VERSION=0.8.36
+RUN npx --yes hyperframes@$HF_VERSION --version \
+ && npx --yes hyperframes@$HF_VERSION skills update talking-head-recut
 
 # HyperFrames renders with its OWN chrome-headless-shell, not Playwright's
 # browser, and fetches it on first render. In a container that download is both a
@@ -59,6 +64,9 @@ ENV HYPERFRAMES_BROWSER_PATH=/usr/local/bin/hf-chrome
 WORKDIR /app
 COPY skills/ /app/skills/
 COPY CLAUDE.md README.md /app/
+
+RUN pinned="$(python3 -c 'import sys;sys.path.insert(0,"/app/skills/reelkit/scripts");import reelkit;print(reelkit.HF_VERSION)')"; \
+    [ "$pinned" = "$HF_VERSION" ] || { echo "image warms hyperframes@$HF_VERSION but reelkit.py pins $pinned"; exit 1; }
 
 RUN python3 /app/skills/reelkit/scripts/reelkit.py doctor
 

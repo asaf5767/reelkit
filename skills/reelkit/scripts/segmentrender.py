@@ -112,6 +112,43 @@ def reusable(out, frames, key):
     return True,''
 
 
+def counted(p): return Path(str(p)+'.count.json')
+
+
+def decoded_frames(p):
+    """Decoded frame count for a video, remembered across runs.
+
+    Counting means decoding every frame: ~0.5s per segment locally, paid by the
+    prepare check AND the resume check on every pass, for files that have not
+    moved. The count is cached beside the file against its size and mtime, so a
+    re-cut or re-rendered video re-derives and an untouched one does not.
+
+    Deliberately NOT the .key.json sidecar: that file is provenance, written
+    only after a successful render, and reusable() reads a missing key there as
+    "cannot prove what produced it". Writing a count into it early would turn
+    that precise refusal into the vaguer "inputs changed", so the two records
+    stay separate - one says what produced the file, this one says how long it
+    decodes.
+
+    Returns None when the count cannot be taken; callers must treat that as
+    "not safe to resume", never as zero.
+    """
+    try: st=p.stat()
+    except OSError: return None
+    meta=counted(p)
+    try:
+        c=json.loads(meta.read_text())
+        if c.get('size')==st.st_size and c.get('mtime_ns')==st.st_mtime_ns:
+            n=c.get('frames')
+            if isinstance(n,int) and n>=0: return n
+    except Exception: pass
+    try: n=int(probe(str(p),'stream=nb_read_frames',count_frames=True).splitlines()[0])
+    except Exception: return None
+    try: meta.write_text(json.dumps({'size':st.st_size,'mtime_ns':st.st_mtime_ns,'frames':n},indent=1))
+    except OSError: pass          # an unwritable cache just means counting again
+    return n
+
+
 def valid_video(p,frames=None):
     """Is this segment safe to resume from?
 
@@ -119,11 +156,15 @@ def valid_video(p,frames=None):
     moov atom (faststart writes it first) and still advertises the full count,
     while `ffmpeg -f null -` reports the decode errors and exits 0 anyway - so the
     old check resumed on a file with 2 real frames where 120 belonged and joined
-    it into the deliverable."""
+    it into the deliverable.
+
+    The count is cached against size and mtime, which is safe in the direction
+    that matters: truncating a file changes its size and rewriting it changes
+    its mtime, so a stale count cannot make a damaged segment look complete.
+    """
     if not p.exists() or p.stat().st_size<10000:return False
-    try:
-        got=int(probe(str(p),'stream=nb_read_frames',count_frames=True).splitlines()[0])
-    except Exception:return False
+    got=decoded_frames(p)
+    if got is None:return False
     return got>0 if frames is None else abs(got-frames)<=1
 
 

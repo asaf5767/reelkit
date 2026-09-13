@@ -13,7 +13,10 @@ That was the shape of the defect this replaces: a plan claimed an image slot was
 made artwork for a box that did not exist, and nothing noticed until a label
 landed on the speaker's eyebrows.
 """
-import os,tempfile
+import os,sys,tempfile
+
+sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
+import mcache  # noqa: E402
 
 # --- CSS facts. These mirror card_css() in reelkit.py; changing one without the
 # --- other is the drift this module exists to prevent.
@@ -119,39 +122,72 @@ BOX_JS = """() => {
 }"""
 
 
-def measure_cards(project, plan, W, H):
+def measure_cards(project, plan, W, H, use_cache=True):
     """Lay out every card fragment in a real browser and read its settled box.
 
     Card height depends on content, so computing it from CSS would be a guess;
     this is the actual number. Returns {} without Playwright - callers treat
-    that as "no information", never as "nothing to avoid"."""
+    that as "no information", never as "nothing to avoid".
+
+    Cards whose HTML, theme and canvas size are unchanged since a previous pass
+    are served from mcache, and the browser is launched only for the rest - so
+    `verify` right after `build`, and the per-segment gate render_gate runs for
+    every segment, stop re-measuring identical cards. The Playwright check stays
+    ABOVE the cache on purpose: a cache hit must never stand in for the
+    dependency the gate needs (see mcache rule 3).
+    """
     if not HAVE_PW:
         return {}
     pub = os.path.join(project, "public")
-    idx = open(os.path.join(pub, "index.html"), encoding="utf-8").read()
+    with open(os.path.join(pub, "index.html"), encoding="utf-8") as fh:
+        idx = fh.read()
     theme = idx.split("<style>", 1)[1].split("</style>", 1)[0]
     theme = theme.replace("url('fonts/", "url('" + os.path.join(pub, "fonts") + "/")
-    res = {}
-    with sync_playwright() as p:
-        br = p.chromium.launch(args=["--no-sandbox"])
-        pg = br.new_page(viewport={"width": W, "height": H})
-        for beat in plan["beats"]:
-            cid = beat["id"]
-            cpath = os.path.join(pub, "cards", f"{cid}.html")
-            if not os.path.exists(cpath):
-                continue
-            card = open(cpath, encoding="utf-8").read()
-            with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False,
-                                             dir=pub, encoding="utf-8") as fh:
-                fh.write(HARNESS % {"theme": theme, "card": card, "w": W, "h": H})
-                tmp = fh.name
-            try:
-                pg.goto("file://" + tmp)
-                pg.wait_for_timeout(180)
-                box = pg.evaluate(BOX_JS)
-                if box:
-                    res[cid] = box
-            finally:
-                os.unlink(tmp)
-        br.close()
+
+    # Scope: everything shared by every card in this measurement. Key: the one
+    # card. Restyle the theme or resize the canvas and the whole section goes.
+    scope = mcache.sha("cards", W, H, HARNESS, BOX_JS, theme)
+    want = {}                       # cid -> (cache key, card html)
+    for beat in plan["beats"]:
+        cid = beat["id"]
+        cpath = os.path.join(pub, "cards", f"{cid}.html")
+        if not os.path.exists(cpath):
+            continue
+        with open(cpath, encoding="utf-8") as fh:
+            card = fh.read()
+        want[cid] = (mcache.sha(card), card)
+
+    cache = mcache.load(project) if use_cache else {}
+    res, todo = {}, []
+    for cid, (key, card) in want.items():
+        hit = mcache.get(cache, "cards", scope, key) if use_cache else None
+        if hit:
+            res[cid] = hit
+        else:
+            todo.append((cid, card))
+
+    if todo:
+        with sync_playwright() as p:
+            br = p.chromium.launch(args=["--no-sandbox"])
+            pg = br.new_page(viewport={"width": W, "height": H})
+            for cid, card in todo:
+                with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False,
+                                                 dir=pub, encoding="utf-8") as fh:
+                    fh.write(HARNESS % {"theme": theme, "card": card, "w": W, "h": H})
+                    tmp = fh.name
+                try:
+                    pg.goto("file://" + tmp)
+                    pg.wait_for_timeout(180)
+                    box = pg.evaluate(BOX_JS)
+                    if box:
+                        res[cid] = box
+                finally:
+                    os.unlink(tmp)
+            br.close()
+
+    if use_cache:
+        # Only cards that actually measured are stored. One that measured
+        # nothing is re-measured next pass rather than cached as "no box".
+        mcache.replace(project, "cards", scope,
+                       {key: res[cid] for cid, (key, _) in want.items() if cid in res})
     return res
