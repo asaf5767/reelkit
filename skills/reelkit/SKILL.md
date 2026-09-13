@@ -369,11 +369,21 @@ python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/
   --segment-seconds 12 --out final.mp4          # resumes segment 0, renders the rest
 ```
 
-A preview segment is byte-identical to the same segment from a full render
-(verified by sha256), which is what makes the reuse safe rather than merely
-plausible. Measured on the 12s sample: a cold full render is 73s; a 2-of-3
-preview followed by a full render is 48s + 28s, so the preview costs about 4%
-instead of a duplicated pass.
+Reuse is safe because a preview segment is produced by the **identical command on
+identical inputs** - same segment subproject, same build output, same fps and
+quality, the same code path a full render takes. Measured on the 12s sample: a
+cold full render is 73s; a 2-of-3 preview followed by a full render is 48s + 28s,
+so the preview costs about 4% instead of a duplicated pass.
+
+It is *not* byte-identical on real footage, and neither is a full render against
+itself. Two renders of one unchanged segment produce only two distinct outputs
+that differ in occasional individual frames - four of five sampled frames hash
+equal, the fifth does not - at min SSIM 0.989 with identical audio. The synthetic
+sample does come out byte-identical, which is what makes this easy to miss. So
+the guarantee a kept segment carries is "an equally valid render of this
+segment", not "the same bytes". That predates segment reuse and applies to every
+resume the pipeline has ever done; it also means `renderdiff.py`'s exact-bitmap
+and SSIM >= 0.999 thresholds cannot pass on real video, only on the sample.
 
 The trade is that a preview is now **short but real** rather than long and rough.
 To see the whole timeline quickly and throw it away, `reelkit.py render --preview`
