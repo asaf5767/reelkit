@@ -19,7 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PRODUCER_PLAYER_READY_TIMEOUT_MS=90000
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg git ffmpeg \
+      ca-certificates curl gnupg git ffmpeg unzip \
  && mkdir -p /etc/apt/keyrings \
  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
       | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
@@ -38,6 +38,22 @@ RUN pip install --no-cache-dir "opencv-python-headless<5" playwright pillow nump
 # does not npx-download them on the first job.
 RUN npx --yes hyperframes@latest --version \
  && npx --yes hyperframes@latest skills update talking-head-recut
+
+# HyperFrames renders with its OWN chrome-headless-shell, not Playwright's
+# browser, and fetches it on first render. In a container that download is both a
+# cold-start cost and a failure the job only discovers at render time - it needs
+# unzip (installed above) and working egress. Point it at the Chromium already in
+# the image instead: any Chrome build works for the screenshot capture path, and
+# nothing is downloaded at run time.
+# Resolved at build time, never hardcoded: Playwright's revision directory
+# (chromium-<rev>) changes whenever the pip package moves. The build fails loudly
+# if no browser is found rather than leaving a dangling path for a job to hit.
+RUN set -eu; \
+    chrome="$(find /opt/pw-browsers -maxdepth 3 -type f -name chrome | head -1)"; \
+    [ -n "$chrome" ] || { echo "no chromium under /opt/pw-browsers"; exit 1; }; \
+    ln -sf "$chrome" /usr/local/bin/hf-chrome; \
+    /usr/local/bin/hf-chrome --version
+ENV HYPERFRAMES_BROWSER_PATH=/usr/local/bin/hf-chrome
 
 WORKDIR /app
 COPY skills/ /app/skills/
