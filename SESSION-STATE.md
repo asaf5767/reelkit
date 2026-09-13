@@ -4,6 +4,23 @@ Coordination snapshot for the Claude Code / Instinct collaboration on reelkit.
 Written 2026-09-13. Supersedes nothing; CLAUDE.md remains the working agreement
 and NEXT.md the backlog.
 
+## Priority order (set 2026-09-13, supersedes NEXT.md ordering)
+
+From the owner, verbatim: *"Watch Yuval's videos and see how she edits. This is
+what I want. This is my end goal. Forget the service right now."*
+
+1. **style-defaults-from-reference** - the reference reels' editing moves become
+   repo defaults **as code or config, not prose**. Instinct is doing the video
+   analysis and hands over concrete moves; Claude Code encodes them. Claude Code
+   does **not** invent style rules.
+2. **fast lane / auto-plan** - now sanctioned, but only in service of #1.
+3. everything else.
+4. **Railway service - parked.** Do not spend effort there. The Dockerfile and
+   `worker.py` stay in the repo and stay working; nobody is deploying them.
+
+NEXT.md's numbering is the older backlog and no longer reflects order. #1, #2,
+#5 and #6 in it are done (PRs #8, #3, #6/#7, #4).
+
 ## Pull requests
 
 | PR | Branch | State | What it is |
@@ -12,9 +29,11 @@ and NEXT.md the backlog.
 | #2 | `feat/real-sfx-pack` | **merged** | 18 CC0 cues bundled at `skills/reelkit/assets/sfx`, replacing the synth as the default |
 | #3 | `feat/derived-card-geometry` | **merged** | NEXT #2: image-slot box derived from CSS; build resolves card layout against measured geometry |
 | #5 | `fix/two-pass-logfile` | **merged** | size-cap encode no longer drops `ffmpeg2pass-0.log` in the working directory |
-| #4 | `feat/preview-frame-reuse` | **open** | NEXT #6: `--preview` is a full-fidelity segment subset the full render resumes. Head `71d6afe`. Instinct revalidating after rewriting the Kaggle driver |
-| #6 | `fix/verify-findings-format` | **open, merging** | worker gate crashed with `KeyError: 0` on any verify finding |
-| #7 | `fix/docker-render-browser` | **open, stacks #6** | NEXT #5: container could not render; `unzip` + pinned browser path |
+| #4 | `feat/preview-frame-reuse` | **merged** | NEXT #6: `--preview` is a full-fidelity segment subset the full render resumes |
+| #6 | `fix/verify-findings-format` | **merged** | worker gate crashed with `KeyError: 0` on any verify finding |
+| #7 | `fix/docker-render-browser` | **merged** | NEXT #5: container could not render; `unzip` + pinned browser path |
+| #8 | `feat/render-gate` | **merged** | NEXT #1: `verify` runs as a fail-closed gate inside `render_project`, so every render path is gated |
+| #9 | `feat/render-cost-cuts` | **merged** (`f5557e8`) | renderer pinned to `hyperframes@0.8.36`; measurement cache (`mcache.py`); decoded frame count cached. Kaggle: preview 150s / full 444s vs 156 / 484 baseline |
 
 ## Design decisions and their basis
 
