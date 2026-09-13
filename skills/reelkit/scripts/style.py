@@ -40,7 +40,13 @@ SCHEMA = {
     "captions": {"maxWords", "maxChars", "size", "top", "height"},
     "motion": {"defaults", "kinds"},
     "pacing": {"dwellMin", "dwellMax", "severity"},
+    # Slice 2. Voice processing and cue ducking are preferences; cue PLACEMENT
+    # is not, and is deliberately absent - losing a cue is a defect, never a
+    # profile setting.
+    "audio": {"voice", "duck"},
 }
+VOICE_KEYS = {"enabled", "highpassHz", "compressor", "eq", "limiter"}
+DUCK_KEYS = {"enabled", "threshold", "ratio", "attackMs", "releaseMs"}
 MOTION_PRIMS = {"fade", "pop", "slide"}
 MOTION_KEYS = {"duration", "ease", "scale"}
 TOP_LEVEL = {"name", "version", "extends", "brand"} | set(SCHEMA)
@@ -92,6 +98,7 @@ def validate(prof, name):
             _die(f"profile {name!r}: unknown key(s) in {sec}: {', '.join(bad)} "
                  f"(allowed: {', '.join(sorted(allowed))})")
     _validate_motion(prof.get("motion") or {}, name)
+    _validate_audio(prof.get("audio") or {}, name)
     sev = (prof.get("pacing") or {}).get("severity")
     if sev is not None and sev not in SEVERITIES:
         _die(f"profile {name!r}: pacing.severity must be one of {', '.join(sorted(SEVERITIES))}")
@@ -110,6 +117,28 @@ def _validate_motion(motion, name):
             if prim not in MOTION_PRIMS:
                 _die(f"profile {name!r}: motion.kinds.{kind} has unknown primitive {prim!r}")
             _validate_spec(spec, name, f"motion.kinds.{kind}.{prim}")
+
+
+def _validate_audio(audio, name):
+    for sec, allowed in (("voice", VOICE_KEYS), ("duck", DUCK_KEYS)):
+        body = audio.get(sec)
+        if body is None:
+            continue
+        if not isinstance(body, dict):
+            _die(f"profile {name!r}: audio.{sec} must be an object")
+        bad = sorted(set(body) - allowed)
+        if bad:
+            _die(f"profile {name!r}: unknown key(s) in audio.{sec}: {', '.join(bad)} "
+                 f"(allowed: {', '.join(sorted(allowed))})")
+    for band in (audio.get("voice") or {}).get("eq") or []:
+        if not isinstance(band, dict) or "hz" not in band or "gainDb" not in band:
+            _die(f"profile {name!r}: each audio.voice.eq band needs hz and gainDb")
+
+
+def audio_cfg(resolved):
+    """(voice, duck) for the mix stage. Absent means off."""
+    a = resolved.get("audio") or {}
+    return a.get("voice") or {}, a.get("duck") or {}
 
 
 def _validate_spec(spec, name, where):

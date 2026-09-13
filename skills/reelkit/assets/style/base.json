@@ -2,21 +2,36 @@
   "name": "base",
   "version": 1,
   "brand": "default",
-
   "captions": {
     "maxWords": 3,
     "maxChars": 15
   },
-
   "motion": {
     "defaults": {
-      "fade":  { "duration": 0.40, "ease": "power2.out" },
-      "pop":   { "duration": 0.45, "ease": "back.out(1.7)", "scale": 0.55 },
-      "slide": { "duration": 0.42, "ease": "power3.out" }
+      "fade": {
+        "duration": 0.4,
+        "ease": "power2.out"
+      },
+      "pop": {
+        "duration": 0.45,
+        "ease": "back.out(1.7)",
+        "scale": 0.55
+      },
+      "slide": {
+        "duration": 0.42,
+        "ease": "power3.out"
+      }
     }
   },
-
   "pacing": {
     "severity": "off"
+  },
+  "audio": {
+    "voice": {
+      "enabled": false
+    },
+    "duck": {
+      "enabled": false
+    }
   }
 }

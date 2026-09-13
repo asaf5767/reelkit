@@ -3,6 +3,9 @@
 import argparse, copy, hashlib, json, math, os, shutil, subprocess, sys
 from pathlib import Path
 
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+import audiomix, style  # noqa: E402
+
 
 def run(cmd, cwd=None):
     print('+', ' '.join(map(str,cmd)), flush=True)
@@ -248,7 +251,18 @@ def main():
     # Segment AAC carries encoder priming at every boundary. Discard it: join only
     # rendered video and mux the original staged audio once, preserving exact sync.
     video=wd/'joined-video.mp4';run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',concat,'-map','0:v:0','-an','-c','copy',video])
-    raw=wd/'joined.mp4';run(['ffmpeg','-y','-v','error','-i',video,'-i',src/'public/input-video.mp4','-map','0:v:0','-map','1:a:0','-c','copy','-shortest',raw])
+    # The audio mix stage owns the delivered audio. This used to be a straight
+    # `-map 1:a:0` from the source, which kept sync perfectly and silently threw
+    # away every SFX cue the build had placed - measured at two cue timestamps on
+    # the 12s sample, the segmented final matched the untouched source to 0.1 dB
+    # while the direct render was 4 dB louder at the same instants. Cues are
+    # placed against the original audio at absolute times, so segment boundaries
+    # and their encoder priming never enter into it.
+    raw=wd/'joined.mp4'
+    sty,_prov=style.for_plan(json.loads((src/'plan.json').read_text(encoding='utf-8')))
+    voice,duck=style.audio_cfg(sty)
+    audiomix.mix(str(src),str(video),str(src/'public/input-video.mp4'),str(raw),
+                 voice=voice,duck=duck)
     run(['python3',z.reelkit,'export','--project',src,'--input',raw,'--out',Path(z.out).resolve()])
 
 if __name__=='__main__':main()

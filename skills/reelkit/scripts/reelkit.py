@@ -20,7 +20,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    split_canvas_h_face, detect_faces,
                    canvas_image_box, wants_plate, head_rect, head_clear_y)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
-import style  # noqa: E402
+import audiomix, style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -2034,8 +2034,20 @@ def render_project(project, output, workers=None, preview=False, checkpoint_dir=
     r = subprocess.run(cmd, cwd=project)
     if r.returncode or not os.path.exists(raw):
         die(f"HyperFrames render failed with exit {r.returncode}")
+    # The audio mix stage owns the delivered audio in BOTH render paths, so the
+    # direct and segmented renders cannot disagree about what a reel sounds
+    # like. The renderer's own audio track is dropped here on purpose: cues are
+    # re-placed against the original file at absolute times, which is what lets
+    # the segmented path carry them at all.
+    plan_ = json.load(open(os.path.join(project, "plan.json"), encoding="utf-8"))
+    sty_, _p = style.for_plan(plan_)
+    voice_, duck_ = style.audio_cfg(sty_)
+    mixed = raw + ".mixed.mp4"
+    audiomix.mix(project, raw, os.path.join(project, "public", "input-video.mp4"),
+                 mixed, voice=voice_, duck=duck_)
     # Preview and full output both pass through the existing phone-safe export.
-    export_deliverable(project, raw, out)
+    export_deliverable(project, mixed, out)
+    os.remove(mixed)
     if not keep_raw: os.remove(raw)
     print(f"reelkit: render complete -> {out}")
     return 0
