@@ -4,3 +4,4 @@ videos/
 public/snapshots/
 __pycache__/
 .DS_Store
+checkpoints/
