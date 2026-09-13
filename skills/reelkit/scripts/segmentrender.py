@@ -9,24 +9,29 @@ def run(cmd, cwd=None):
     subprocess.run(list(map(str,cmd)), cwd=cwd, check=True)
 
 
-def probe(path, field='format=duration'):
-    return subprocess.check_output(['ffprobe','-v','error','-show_entries',field,'-of','default=nw=1:nk=1',path],text=True).strip()
+def probe(path, field='format=duration', count_frames=False):
+    cmd=['ffprobe','-v','error']+(['-count_frames'] if count_frames else [])
+    return subprocess.check_output(cmd+['-show_entries',field,'-of','default=nw=1:nk=1',path],text=True).strip()
 
 
 def boundaries(plan, duration, target, grid_fps=10):
-    fps=int(plan.get('meta',{}).get('fps',30)); total=round(duration*fps)
+    # Everything here is SECONDS. `total` used to be round(duration*fps), i.e.
+    # frames, while target/cur/candidates were seconds - so the loop ran until it
+    # had walked `duration*fps` seconds and a 12s clip prepared 34 segments whose
+    # boundaries ran to 360, far past the end of the media.
+    q=lambda t: round(t*grid_fps)/grid_fps
+    total=q(duration)
     # Prefer boundaries between visual beats, so no overlay is cut in half.
     # Boundaries lie on the coarsest output frame grid (10fps preview). Then both
     # preview (10fps) and full (30fps) segment durations are integral frame counts.
     # This prevents ceil/round drift from accumulating across joins.
-    candidates={round(float(b['end'])*grid_fps)/grid_fps for b in plan['beats'] if 0 < float(b['end']) < duration}
-    out=[0]; cur=0
-    while total-cur > round(target*fps*1.35):
+    candidates={q(float(b['end'])) for b in plan['beats'] if 0 < float(b['end']) < duration}
+    out=[0.0]; cur=0.0
+    while total-cur > target*1.35:
         goal=cur+target
-        viable=[x for x in candidates if x>cur+target*.55]
-        if not viable: nxt=min(total,goal)
-        else: nxt=min(viable,key=lambda x:abs(x-goal))
-        if nxt>=total: break
+        viable=[x for x in candidates if cur+target*.55 < x < total]
+        nxt=min(viable,key=lambda x:abs(x-goal)) if viable else q(min(total,goal))
+        if nxt>=total or nxt<=cur: break
         out.append(nxt);cur=nxt
     out.append(total)
     return out
@@ -64,12 +69,18 @@ def shift_plan(plan,start,end):
 
 
 def valid_video(p,frames=None):
+    """Is this segment safe to resume from?
+
+    Counts DECODED frames, not the header's nb_frames. A truncated MP4 keeps its
+    moov atom (faststart writes it first) and still advertises the full count,
+    while `ffmpeg -f null -` reports the decode errors and exits 0 anyway - so the
+    old check resumed on a file with 2 real frames where 120 belonged and joined
+    it into the deliverable."""
     if not p.exists() or p.stat().st_size<10000:return False
     try:
-        got=int(probe(str(p),'stream=nb_frames').splitlines()[0])
-        subprocess.run(['ffmpeg','-v','error','-i',str(p),'-f','null','-'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-        return frames is None or abs(got-frames)<=1
+        got=int(probe(str(p),'stream=nb_read_frames',count_frames=True).splitlines()[0])
     except Exception:return False
+    return got>0 if frames is None else abs(got-frames)<=1
 
 
 def main():
@@ -80,7 +91,15 @@ def main():
     z=a.parse_args(); src=Path(z.project).resolve(); wd=Path(z.work_dir).resolve();wd.mkdir(parents=True,exist_ok=True)
     plan=json.load(open(src/'plan.json')); transcript=json.load(open(src/'transcript.json')); fps=int(plan.get('meta',{}).get('fps',30))
     duration=float(probe(str(src/'public/input-video.mp4'))); bounds=boundaries(plan,duration,z.segment_seconds)
-    manifest={'version':1,'source':str(src),'fps':fps,'duration':duration,'boundaries':bounds,'segments':[]}
+    # A preview segment is 10fps draft and a full segment is authored fps at
+    # standard quality. They are different artefacts, so they get different
+    # paths: sharing one meant the resume check kept whatever was on disk and a
+    # full render silently shipped the preview's draft frames.
+    render_fps=min(fps,10) if z.preview else fps
+    suffix='.preview' if z.preview else ''
+    manifest={'version':2,'source':str(src),'fps':fps,'renderFps':render_fps,
+              'fidelity':'preview' if z.preview else 'full','duration':duration,
+              'boundaries':bounds,'segments':[]}
     for i,(st,en) in enumerate(zip(bounds,bounds[1:])):
         seg=wd/f'segment-{i:03d}'; pub=seg/'public'; pub.mkdir(parents=True,exist_ok=True)
         for name in ['fonts','images','sfx','vendor']:
@@ -95,16 +114,19 @@ def main():
                 v=dict(w);v['start']=round(max(0,float(w['start'])-st),4);v['end']=round(min(en-st,float(w['end'])-st),4)
                 if v['end']>v['start']:tw.append(v)
         json.dump(tw,open(seg/'transcript.json','w'),ensure_ascii=False,indent=2)
-        media=pub/'input-video.mp4'; expected=round((en-st)*fps)
-        if not valid_video(media):
+        media=pub/'input-video.mp4'; expected=round((en-st)*render_fps)
+        # The trimmed source is cut at the authored fps regardless of render
+        # fidelity. Give the check that expectation too: without one it can only
+        # ask "does anything decode", which a truncated clip still answers yes to.
+        if not valid_video(media,round((en-st)*fps)):
             tmp=str(media)+'.tmp.mp4';run(['ffmpeg','-y','-v','error','-i',src/'public/input-video.mp4','-filter_complex',f'[0:v]trim=start={st}:end={en},setpts=PTS-STARTPTS,fps={fps}[v];[0:a]atrim=start={st}:end={en},asetpts=PTS-STARTPTS[a]','-map','[v]','-map','[a]','-c:v','libx264','-preset','veryfast','-crf','17','-g',fps,'-keyint_min',fps,'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k',tmp]);os.replace(tmp,media)
-        manifest['segments'].append({'id':i,'start':st,'end':en,'frames':expected,'project':str(seg),'output':str(wd/f'segment-{i:03d}.mp4')})
+        manifest['segments'].append({'id':i,'start':st,'end':en,'frames':expected,'project':str(seg),'output':str(wd/f'segment-{i:03d}{suffix}.mp4')})
     json.dump(manifest,open(wd/'manifest.json','w'),indent=2)
     print('prepared',len(manifest['segments']),'durable segments:',bounds)
     if z.prepare_only:return
     for s in manifest['segments']:
         out=Path(s['output'])
-        if valid_video(out):print('resume: keeping',out);continue
+        if valid_video(out,s['frames']):print('resume: keeping',out);continue
         run(['python3',z.reelkit,'build','--project',s['project']])
         cmd=['python3',z.reelkit,'render','--project',s['project'],'--out',out,'--workers',z.workers]
         if z.preview:cmd.append('--preview')

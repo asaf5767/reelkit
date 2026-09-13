@@ -353,3 +353,24 @@ staged audio once, avoiding AAC encoder delay at every boundary.
 python3 scripts/segmentrender.py --project videos/myreel --work-dir checkpoints/segments \
   --segment-seconds 12 --workers 2 --out final.mp4
 ```
+
+**Preview and full never share segment files.** A preview segment is 10fps draft
+and a full segment is authored fps at standard quality - different artefacts, so
+they get different paths (`segment-000.preview.mp4` vs `segment-000.mp4`) and the
+resume check compares decoded frame counts against the fidelity being rendered.
+They used to share one path and a check that only asked "does this decode", so a
+full render over a preview work-dir kept the draft segments and shipped them.
+
+**What reuse is actually available.** Only same-fidelity reuse: a full render
+resumes full segments, a preview resumes preview ones. Nothing crosses, because
+a 10fps segment carries no frame a 30fps output can use.
+
+HyperFrames' extracted-frame cache (`--frames-cache-dir` /
+`HYPERFRAMES_EXTRACT_CACHE_DIR`) does not bridge the two either: its key includes
+the render fps and frames inside a bucket are indexed sequentially, so a 10fps
+bucket's `frame_00005` is a different moment from a 30fps bucket's. Measured on
+the 12s sample, a preview left 120 cached frames and the full render then added
+360 more, reusing none. Pointing both passes at one cache directory is still
+worth doing for repeated renders at the *same* fidelity - but measured there it
+was worth about 6% (51s cold, 48s fully warm), because the cost is Chrome capture,
+not frame extraction. Do not go looking for a big win in that cache.
