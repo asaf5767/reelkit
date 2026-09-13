@@ -13,7 +13,7 @@ image-capable agent drop real artwork into named boxes.
 
 Everything is deterministic: same plan.json + same media => byte-identical HTML.
 """
-import argparse, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time
+import argparse, glob, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    lang_direction as cards_lang_direction, split_canvas_h,
@@ -1782,22 +1782,32 @@ def export_deliverable(project, inp, out):
         dur = probe_duration(dst)
         vkbps = max(200, int(SIZE_CAP * 8 / 1000 / dur) - 128)
         tmp = dst + ".cap.tmp.mp4"
+        # -passlogfile, or ffmpeg writes ffmpeg2pass-0.log(.mbtree) into the
+        # CURRENT WORKING DIRECTORY and leaves them there. Two exports running
+        # from one directory would also share that fixed name and feed each
+        # other's statistics into the second pass.
+        plog = dst + ".passlog"
         base = ["ffmpeg", "-y", "-i", dst, "-c:v", "libx264", "-preset", "slow",
-                "-b:v", f"{vkbps}k", "-pix_fmt", "yuv420p",
+                "-b:v", f"{vkbps}k", "-pix_fmt", "yuv420p", "-passlogfile", plog,
                 "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1"]
-        r1 = sh(base + ["-pass", "1", "-an", "-f", "null", os.devnull,
-                        "-loglevel", "error"])
-        r2 = sh(base + ["-pass", "2", "-c:a", "aac", "-b:a", "128k",
-                        "-movflags", "+faststart", tmp, "-loglevel", "error"])
-        if r1.returncode == 0 and r2.returncode == 0 and os.path.exists(tmp) \
-                and os.path.getsize(tmp) <= 16 * 1024 * 1024:
-            os.replace(tmp, dst)
-            how += ", then size-capped under the 16MB WhatsApp bar"
-        else:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            die(f"export is {os.path.getsize(dst)} bytes and the two-pass "
-                f"size-cap encode failed:\n{(r1.stderr + r2.stderr)[-1200:]}")
+        try:
+            r1 = sh(base + ["-pass", "1", "-an", "-f", "null", os.devnull,
+                            "-loglevel", "error"])
+            r2 = sh(base + ["-pass", "2", "-c:a", "aac", "-b:a", "128k",
+                            "-movflags", "+faststart", tmp, "-loglevel", "error"])
+            if r1.returncode == 0 and r2.returncode == 0 and os.path.exists(tmp) \
+                    and os.path.getsize(tmp) <= 16 * 1024 * 1024:
+                os.replace(tmp, dst)
+                how += ", then size-capped under the 16MB WhatsApp bar"
+            else:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+                die(f"export is {os.path.getsize(dst)} bytes and the two-pass "
+                    f"size-cap encode failed:\n{(r1.stderr + r2.stderr)[-1200:]}")
+        finally:
+            for stray in glob.glob(plog + "*"):
+                try: os.remove(stray)
+                except OSError: pass
         left = [(l, m) for l, m in container_problems(dst) if l == "ERROR"]
         if left:
             die("size-capped export fails the container check: "
