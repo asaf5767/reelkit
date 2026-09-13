@@ -242,7 +242,8 @@ def main():
         if ok:print('resume: keeping',out);continue
         if out.exists():print(f'resume: re-rendering {out.name} - {why}')
         run(['python3',z.reelkit,'build','--project',s['project']])
-        run(['python3',z.reelkit,'render','--project',s['project'],'--out',out,'--workers',z.workers])
+        run(['python3',z.reelkit,'render','--project',s['project'],'--out',out,
+             '--workers',z.workers,'--no-audio-mix'])
         # Written only after a successful render, so an interrupted one leaves no
         # claim behind and the next run redoes it.
         sidecar(out).write_text(json.dumps({'key':key,'frames':s['frames'],'fps':fps,

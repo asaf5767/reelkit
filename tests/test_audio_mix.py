@@ -189,4 +189,114 @@ def peak(path,ss,t):
     return -99.0
 
 
+
+class ProvesItsOwnWork(unittest.TestCase):
+    """A mix that runs cleanly and places nothing is inaudible to every other
+    gate: the file decodes, the levels look ordinary, the cues are simply gone.
+    Kaggle v16 caught exactly that, so the stage now measures its own output."""
+
+    def test_the_graph_does_not_renormalise_when_a_cue_ends(self):
+        """amix renormalises over 2s as each input ends, which pulled the whole
+        mix DOWN after every cue - the riser measured 3 dB below the untouched
+        source."""
+        fc,_=audiomix.filtergraph(
+            [{'src':'a','path':'a','start':1.0,'duration':.5,'volume':.1}],{},{})
+        self.assertEqual(fc.count('dropout_transition=0'),fc.count('amix='))
+
+    def test_every_input_is_normalised_before_it_is_mixed(self):
+        """A mono 44.1k source against stereo cues otherwise leaves the
+        conversions wherever ffmpeg puts them, which varies by build."""
+        fc,_=audiomix.filtergraph(
+            [{'src':'a','path':'a','start':1.0,'duration':.5,'volume':.1}],{},{})
+        self.assertEqual(fc.count('sample_rates=48000'),2)
+
+    def test_the_mux_maps_only_video_and_audio(self):
+        """A phone source can carry a timecode or telemetry track, and a
+        `-c copy` without explicit maps carries it into the deliverable."""
+        src=(ROOT/'skills/reelkit/scripts/audiomix.py').read_text()
+        self.assertEqual(src.count('"-dn", "-sn"'),2,'both mux paths must drop data streams')
+
+    def test_the_proof_seeks_accurately(self):
+        """`-ss` before `-i` is approximate; a few ms of misalignment stops the
+        difference cancelling and every cue then reads as present."""
+        src=(ROOT/'skills/reelkit/scripts/audiomix.py').read_text()
+        i=src.index('def added_db(')
+        body=src[i:src.index('def prove(')]
+        self.assertIn('atrim=',body)
+        self.assertNotIn('"-ss"',body,'approximate seek cannot measure a difference')
+
+    def test_the_proof_window_covers_a_long_cue(self):
+        """A riser opens near silence and builds; 0.45s at its onset reported it
+        missing when it was correctly placed."""
+        self.assertGreater(audiomix.PROOF_MAX_SPAN,audiomix.PROOF_WINDOW)
+
+    def test_the_floor_sits_between_the_noise_and_a_real_cue(self):
+        """Measured on the sample: noise floor -63..-67 dBFS, real cues -17..-22."""
+        self.assertLess(audiomix.PROOF_FLOOR_DB,-30)
+        self.assertGreater(audiomix.PROOF_FLOOR_DB,-60)
+
+    def test_an_unmeasurable_cue_blocks_rather_than_passes(self):
+        real=audiomix.added_db
+        audiomix.added_db=lambda *a,**k: None
+        self.addCleanup(setattr,audiomix,'added_db',real)
+        with self.assertRaises(SystemExit) as e:
+            audiomix.prove('o','s',[{'src':'x','start':1.0,'duration':.5}],log=lambda *a: None)
+        self.assertIn('could not measure',str(e.exception))
+
+    def test_a_silent_cue_blocks(self):
+        real=audiomix.added_db
+        audiomix.added_db=lambda *a,**k: -70.0
+        self.addCleanup(setattr,audiomix,'added_db',real)
+        with self.assertRaises(SystemExit) as e:
+            audiomix.prove('o','s',[{'src':'x','start':1.0,'duration':.5}],log=lambda *a: None)
+        self.assertIn('not audible',str(e.exception))
+
+    def test_an_audible_cue_passes(self):
+        real=audiomix.added_db
+        audiomix.added_db=lambda *a,**k: -18.0
+        self.addCleanup(setattr,audiomix,'added_db',real)
+        audiomix.prove('o','s',[{'src':'x','start':1.0,'duration':.5}],log=lambda *a: None)
+
+    def test_no_cues_means_nothing_to_prove(self):
+        audiomix.prove('o','s',[],log=lambda *a: None)
+
+
+class SegmentMixIsNotRepeated(unittest.TestCase):
+    """The join discards segment audio with `-an`, so mixing per segment is work
+    nobody hears - it cost ~28s of the ~30s the stage was adding."""
+
+    def test_segmentrender_defers_the_mix(self):
+        src=(ROOT/'skills/reelkit/scripts/segmentrender.py').read_text()
+        self.assertIn('--no-audio-mix',src)
+
+    def test_render_supports_deferring(self):
+        import reelkit,inspect
+        self.assertIn('mix_audio',inspect.signature(reelkit.render_project).parameters)
+
+
+class ContainerAuditRejectsStrayStreams(unittest.TestCase):
+    def test_a_data_stream_is_an_error(self):
+        import reelkit,subprocess,tempfile,os
+        if not shutil_which('ffmpeg'): self.skipTest('ffmpeg not installed')
+        with tempfile.TemporaryDirectory() as d:
+            f=os.path.join(d,'tc.mp4')
+            subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi','-i','color=c=black:s=64x64:d=1',
+                            '-f','lavfi','-i','sine=frequency=200:duration=1','-map','0:v','-map','1:a',
+                            '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',
+                            '-timecode','00:00:00:00',f],check=True)
+            self.assertEqual(reelkit._extra_streams(f),['data'])
+            self.assertTrue([p for p in reelkit.container_problems(f)
+                             if p[0]=='ERROR' and 'unexpected stream' in p[1]])
+
+    def test_a_clean_file_passes(self):
+        import reelkit,subprocess,tempfile,os
+        if not shutil_which('ffmpeg'): self.skipTest('ffmpeg not installed')
+        with tempfile.TemporaryDirectory() as d:
+            f=os.path.join(d,'ok.mp4')
+            subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi','-i','color=c=black:s=64x64:d=1',
+                            '-f','lavfi','-i','sine=frequency=200:duration=1','-map','0:v','-map','1:a',
+                            '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',f],check=True)
+            self.assertEqual(reelkit._extra_streams(f),[])
+
+
 if __name__=='__main__': unittest.main()

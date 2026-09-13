@@ -1777,6 +1777,13 @@ def _stream_info(path):
     return v, a
 
 
+def _extra_streams(path):
+    """Stream kinds that are neither video nor audio."""
+    r = sh(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+            "-of", "default=nw=1:nk=1", path])
+    return [k for k in r.stdout.split() if k not in ("video", "audio")]
+
+
 def container_problems(path):
     """Phone-safe container audit for a deliverable MP4. Returns
     [(level, message)]: ERROR = phones/WhatsApp fail to open it,
@@ -1796,6 +1803,17 @@ def container_problems(path):
                               "`reelkit.py export` writes them"))
     if a and a.get("codec_name") != "aac":
         probs.append(("WARN", f"audio codec {a.get('codec_name')} - AAC is the safe choice"))
+    # Anything that is not the video or the audio has no business in a
+    # deliverable. A phone source can carry a timecode or telemetry data track,
+    # and a `-c copy` without explicit maps carries it all the way through - it
+    # survived every gate because nothing was looking for it.
+    extra = _extra_streams(path)
+    if extra:
+        kinds = ", ".join(sorted(extra))
+        probs.append(("ERROR", f"{len(extra)} unexpected stream(s) in the container "
+                               f"({kinds}) - a deliverable carries video and audio only; "
+                               "map them explicitly when muxing"))
+
     return probs
 
 
@@ -1985,7 +2003,7 @@ def render_gate(project):
 
 
 def render_project(project, output, workers=None, preview=False, checkpoint_dir=None,
-                   software_gpu=False, keep_raw=False):
+                   software_gpu=False, keep_raw=False, mix_audio=True):
     """Render through HyperFrames with deterministic sizing and a fast preview lane."""
     project = os.path.abspath(project)
     public = os.path.join(project, "public")
@@ -2039,6 +2057,15 @@ def render_project(project, output, workers=None, preview=False, checkpoint_dir=
     # like. The renderer's own audio track is dropped here on purpose: cues are
     # re-placed against the original file at absolute times, which is what lets
     # the segmented path carry them at all.
+    # A segment's audio is thrown away by the join's `-an`, so mixing it there
+    # is work nobody hears. segmentrender turns this off and mixes once, on the
+    # joined video, against the original audio.
+    if not mix_audio:
+        export_deliverable(project, raw, out)
+        if not keep_raw:
+            os.remove(raw)
+        print(f"reelkit: render complete -> {out} (audio mix deferred to the join)")
+        return 0
     plan_ = json.load(open(os.path.join(project, "plan.json"), encoding="utf-8"))
     sty_, _p = style.for_plan(plan_)
     voice_, duck_ = style.audio_cfg(sty_)
@@ -2111,6 +2138,8 @@ def main():
     e = sub.add_parser("export"); e.add_argument("--project", required=True)
     e.add_argument("--input", default="output.mp4"); e.add_argument("--out", default="final.mp4")
     rr = sub.add_parser("render"); rr.add_argument("--project", required=True)
+    rr.add_argument("--no-audio-mix", action="store_true",
+                    help="render video only; the caller mixes audio (segmentrender)")
     rr.add_argument("--out", default="final.mp4"); rr.add_argument("--workers", type=int)
     rr.add_argument("--preview", action="store_true", help="10fps draft iteration render")
     rr.add_argument("--checkpoint-dir", help="write a reconstruction bundle before rendering")
@@ -2131,7 +2160,8 @@ def main():
         return export_deliverable(a.project, a.input, a.out)
     if a.cmd == "render":
         return render_project(a.project, a.out, a.workers, a.preview,
-                              a.checkpoint_dir, a.software_gpu, a.keep_raw)
+                              a.checkpoint_dir, a.software_gpu, a.keep_raw,
+                              mix_audio=not a.no_audio_mix)
     if a.cmd == "cut":
         keeps = [[float(x) for x in seg.split(":")] for seg in a.keep.split(",")]
         return cut_video(a.video, a.out, keeps, a.fps)
