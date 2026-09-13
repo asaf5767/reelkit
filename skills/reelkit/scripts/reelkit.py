@@ -19,6 +19,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    lang_direction as cards_lang_direction, split_canvas_h,
                    split_canvas_h_face, detect_faces,
                    canvas_image_box, wants_plate, head_rect, head_clear_y)
+from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -432,11 +433,53 @@ def ensure_mandatory_hook(project, plan, words):
 
 
 # ------------------------------------------------------------------ build
-def build(project):
+def fit_pass(project, plan, W, H, already):
+    """Resolve every over-the-footage card against what was actually rendered.
+
+    Runs after the cards exist, because a card's height is content-driven and
+    only a browser knows it. Returns (layouts_to_apply, blocked) where blocked
+    names the beats no layout can save - those stop the build rather than
+    reaching a render that the verify gate would fail anyway.
+
+    Skipped silently when Playwright or OpenCV is absent: build is not the gate,
+    `verify` is, and it still refuses to let an unmeasured reel through."""
+    vid = os.path.join(project, "public", "input-video.mp4")
+    beats = [b for b in plan["beats"] if b.get("mode", "top") in ("top", "stage")]
+    if not beats or not os.path.exists(vid):
+        return {}, []
+    boxes = measure_cards(project, plan, W, H)
+    if not boxes:
+        return {}, []
+    times = {b["id"]: [b["start"] + (b["end"] - b["start"]) * f for f in (0.2, 0.5, 0.8)]
+             for b in beats}
+    faces = detect_faces(vid, times, W, H)
+    if not faces:
+        return {}, []
+    out, blocked = {}, []
+    for b in beats:
+        cid = b["id"]
+        lay, why = fit_layout(boxes.get(cid), faces.get(cid), b.get("layout"), head_clear_y)
+        if why:
+            blocked.append((cid, why))
+        elif lay is not None and lay != (b.get("layout") or {}):
+            if already and already.get(cid) == lay:
+                continue                    # already applied; do not loop
+            out[cid] = lay
+    return out, blocked
+
+
+def build(project, _layouts=None, _pass=1):
     plan_path = os.path.join(project, "plan.json")
     if not os.path.exists(plan_path):
         die("no plan.json in project - see references/plan-schema.md")
     plan = json.load(open(plan_path, encoding="utf-8"))
+    # Pass 2 rebuilds with the layouts the fit pass resolved against measured
+    # geometry. plan.json is never touched: build stays a pure function of the
+    # plan plus the media, so the same inputs still produce the same HTML.
+    if _layouts:
+        for b in plan["beats"]:
+            if b["id"] in _layouts:
+                b["layout"] = _layouts[b["id"]]
     meta = plan.get("meta", {})
     fps = int(meta.get("fps", 30)); W = int(meta.get("width", 1080)); H = int(meta.get("height", 1920))
     an = Anim(fps)
@@ -588,9 +631,15 @@ def build(project):
                 missing.append(cid)
 
         if img:
-            box = img.get("box") or ([70, 300, 940, 700] if mode == "stage"
-                                     else ([70, 220, 940, 480] if mode == "full"
-                                           else [70, 140, 940, 480]))
+            # Derived, never authored. A plan-supplied box was advisory and drifted
+            # from the CSS that actually lays the frame out, so a generator made
+            # artwork for a box that did not exist. `full` never reaches here -
+            # a still image in full mode is rejected in the static checks above.
+            if img.get("box"):
+                warn.append(f"beat {cid}: image.box is ignored - the slot box is "
+                            f"derived from the CSS; delete it from the plan")
+            box = image_slot_box(mode, beat.get("layout"),
+                                 wants_plate(kind, beat), W)
             visuals.append({
                 "id": cid, "start": st, "end": en, "kind": kind,
                 "file": f"public/images/{cid}.png", "present": has_img,
@@ -841,6 +890,15 @@ window.__timelines["reelkit"] = tl;
                 ", ".join(f"{h:.2f}" for h in hits) + "\n")
     open(os.path.join(project, "BEATS.md"), "w", encoding="utf-8").write(beats_md)
 
+    refit, blocked = fit_pass(project, plan, W, H, _layouts) if _pass == 1 else ({}, [])
+    if blocked:
+        die("card geometry cannot clear the speaker's head:\n" +
+            "\n".join(f"  {cid}: {why}" for cid, why in blocked))
+    if refit:
+        for cid, lay in sorted(refit.items()):
+            print(f"reelkit: fit {cid} -> {lay} (measured against the detected head)")
+        return build(project, refit, _pass=2)
+
     for w in warn:
         print(f"reelkit: ! {w}")
     print(f"reelkit: {len(plan['beats'])} beats, {len(caps)} caption lines, "
@@ -988,16 +1046,40 @@ SFX_SEARCH = [
 ]
 
 
+BUNDLED_SFX = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "assets", "sfx")
+
+
 def find_sfx_dir(explicit=None):
-    """Locate the media-use bundled SFX library. Not vendored into reelkit: the
-    Pixabay licence covers using these inside a rendered video, but not
-    re-hosting the raw files in a public repo."""
-    cands = ([explicit] if explicit else []) + SFX_SEARCH
+    """Locate the SFX library.
+
+    media-use first when it is installed - its Pixabay-licensed files are richer,
+    and they can be used inside a rendered video even though they cannot be
+    re-hosted here. Then reelkit's own CC0 pack (assets/sfx), which ships in the
+    repo and is what a clean clone, CI or a Kaggle kernel actually gets. The
+    synthesized stand-ins are the last resort, per name rather than per library -
+    see sfx_src()."""
+    cands = ([explicit] if explicit else []) + SFX_SEARCH + [BUNDLED_SFX]
     for c in cands:
         d = os.path.expanduser(c)
         if os.path.isdir(d):
             return d
     return None
+
+
+def sfx_src(sdir, name):
+    """Path to one cue, falling back to the synthesized stand-in for a name the
+    chosen library does not carry. Per-name, because no real library covers every
+    cue: the CC0 pack has no `riser`, and a missing name used to mean silence at
+    that edit point."""
+    src = os.path.join(sdir, f"{name}.mp3")
+    if os.path.exists(src):
+        return src, sdir
+    syn = os.path.join(synth_sfx_dir(), f"{name}.mp3")
+    if os.path.exists(syn):
+        print(f"reelkit: sfx '{name}' not in the library - synthesized stand-in")
+        return syn, os.path.dirname(syn)
+    return None, sdir
 
 
 _SR = 44100
@@ -1345,23 +1427,22 @@ def resolve_sfx(plan, pub, dur, an):
     sdir = find_sfx_dir(plan.get("audio", {}).get("sfxDir"))
     if not sdir:
         sdir = synth_sfx_dir()
-        print("reelkit: bundled sfx library not found - using synthesized stand-ins "
-              "(~/.cache/reelkit/sfx-synth). Install the HyperFrames media-use skill "
-              "for the real sounds.")
+        print("reelkit: no sfx library found - using synthesized stand-ins "
+              "(~/.cache/reelkit/sfx-synth).")
 
     os.makedirs(os.path.join(pub, "sfx"), exist_ok=True)
     files, out, tracks = {}, [], []          # tracks[i] = end time of last cue on track i
     for c in sorted(cues, key=lambda x: x["at"]):
         if c["name"] not in files:
-            src = os.path.join(sdir, f"{c['name']}.mp3")
-            if not os.path.exists(src):
+            src, from_dir = sfx_src(sdir, c["name"])
+            if not src:
                 print(f"reelkit: ! no sfx named '{c['name']}' - skipped")
                 files[c["name"]] = None
             else:
                 dst = os.path.join(pub, "sfx", f"{c['name']}.mp3")
                 shutil.copy2(src, dst)
                 files[c["name"]] = (f"{c['name']}.mp3",
-                                    sfx_duration(sdir, c["name"], f"{c['name']}.mp3"),
+                                    sfx_duration(from_dir, c["name"], f"{c['name']}.mp3"),
                                     sfx_gain(dst, float(plan.get("audio", {}).get("sfxTargetDb", -11.0))),
                                     sfx_lead_silence(dst))
         got = files[c["name"]]
@@ -1860,7 +1941,10 @@ def doctor():
     except Exception:
         print("  OPT opencv      not installed - `verify` face checks skipped (everything else runs)")
     sfx = find_sfx_dir()
-    print(f"  {'OK ' if sfx else 'OPT'} sfx        {sfx or 'media-use skill not found - sfx cues will be skipped'}")
+    which = ("media-use" if sfx and "media-use" in sfx else
+             "bundled CC0 pack" if sfx == BUNDLED_SFX else "custom")
+    print(f"  {'OK ' if sfx else 'MISS'} sfx        "
+          f"{sfx + ' (' + which + ')' if sfx else 'no library and assets/sfx is missing - broken checkout'}")
     print("\nRender/snapshot on a slow or headless box needs:\n"
           "  PRODUCER_PAGE_NAVIGATION_TIMEOUT_MS=90000 PRODUCER_PLAYER_READY_TIMEOUT_MS=90000")
     return 0 if ok else 1

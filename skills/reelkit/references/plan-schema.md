@@ -57,11 +57,10 @@ composition. Nothing else is authored by hand.
       },
       "data": { /* kind-specific, see below */ },
       "sfx": [ { "name": "pop", "at": 0.15, "volume": 0.85 } ],   // at = relative to beat start
-      "image": {             // optional image slot
+      "image": {             // optional image slot - no box: it is derived
         "prompt": "…",
         "mode": "replace",   // "replace" the drawn card, or sit "behind" it
         "alpha": false,
-        "box": [70, 300, 940, 700],
         "zoom": 1.08,
         "caption": "…"
       }
@@ -95,6 +94,22 @@ honest version of one: an opaque ground, not a card floating over a half-visible
 speaker. A beat that still carries the key gets a build warning.
 
 Beats must not overlap in time. `end` is clamped to the media duration.
+
+### Geometry is measured, never authored
+
+There is no `box` field on an image slot, and `layout` is a hint rather than a
+result. Both are decided for you:
+
+- The **slot box** is derived from the CSS that lays the frame out - a fixed
+  820px frame, centred, its height following the image's aspect - and published
+  to `visuals.json`. A plan that still carries `image.box` gets a warning and the
+  value is ignored. It used to be authored, drifted from the CSS, and told
+  generators to make 940x480 artwork for an 820x419 frame.
+- `layout.top` and `layout.scale` are **resolved by `build`** against the card's
+  measured box and the detected head: the card slides up first, shrinks only if
+  sliding is not enough, and the build fails outright when clearing the head
+  would take it under the readable floor. Author them only to set a starting
+  point; the resolver has the last word and prints what it chose.
 
 ### `full` — moving B-roll only
 
