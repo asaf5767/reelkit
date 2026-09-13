@@ -131,9 +131,10 @@ def caption_clips(words, br, dur, an, capcfg=None):
 
 
 # ------------------------------------------------------------------ theme css
-def theme_css(br, capcfg=None):
+def theme_css(br, capcfg=None, titlecfg=None):
     A = br["accents"]
     CAPSTROKE = captionfx.stroke_css(capcfg or {})
+    SCRIPTFONT = (titlecfg or {}).get("scriptFont") or "Georgia,'Times New Roman',serif"
     return f"""
 :root{{--bg:{br['bg']};--text:{br['text']};--accent-0:{A[0]};--accent-1:{A[1]};
 --accent-2:{A[2]};--accent-3:{A[3]};--accent-4:{A[4]};}}
@@ -164,6 +165,17 @@ background:linear-gradient(180deg,rgba(5,6,10,0) 0%,rgba(5,6,10,.30) 45%,rgba(5,
 /* The detonated keyword is SVG text fitted with textLength, so it cannot
    overflow the canvas or be clipped in either direction. */
 .cdet{{display:block;width:100%;height:100%;overflow:visible;}}
+/* Title lockup: a bold sans line, a script accent line, ONE accent. Emphasis is
+   type and a single flat colour - no glowing container, nothing that spends the
+   heavy-overlay budget. */
+.lockup{{display:flex;flex-direction:column;gap:16px;align-items:center;text-align:center;}}
+.lockmain{{font-size:96px;font-weight:900;line-height:1.06;letter-spacing:-.01em;
+ display:flex;flex-wrap:wrap;gap:.24em;justify-content:center;}}
+.lockmain .lw{{display:inline-block;opacity:0;}}
+/* The single accent. A flat block, not a halo. */
+.lockmain .lw-hi{{color:#0B0D12;background:var(--lhi);border-radius:16px;padding:0 .16em;}}
+.lockscript{{font-family:{SCRIPTFONT};font-style:italic;font-weight:600;
+ font-size:52px;opacity:0;}}
 .cap-host .cw{{display:inline-block;}}
 .capline{{display:flex;flex-wrap:wrap;gap:8px 28px;justify-content:center;align-items:center;
 width:920px;margin:0 auto;padding:22px 30px;border-radius:28px;background:{br['captionPlate']};
@@ -451,7 +463,7 @@ def select_hook(words, lang):
     return "Wait - this changes the answer", ["Most people miss this part", "It sounds right. It isn't."], "generic tension fallback; opening context: " + first
 
 
-def ensure_mandatory_hook(project, plan, words):
+def ensure_mandatory_hook(project, plan, words, _style=None):
     """Materialize a mandatory hook beat and a review report.
 
     The hook may overlap speech, but not another graphic. Existing graphics that
@@ -465,11 +477,24 @@ def ensure_mandatory_hook(project, plan, words):
     if not title:
         title, runners, rationale = select_hook(words, lang)
     end = round(min(4.0, max(2.6, float(hook.get("end", 3.6)))), 2)
+    # Under a profile that asks for it the hook IS the title lockup, and it
+    # opens on frame 0 rather than fading in after a lead-in. base keeps the
+    # hero card, so nothing changes for a reel that predates the treatment.
+    tcfg = (_style or {}).get("title") or {}
+    hk = dict(hook.get("lockup") or {})
+    if tcfg.get("lockup"):
+        kind = "lockup"
+        data = {"main": hk.get("main") or title, "script": hk.get("script", ""),
+                "highlight": hk.get("highlight", ""),
+                "wordStep": tcfg.get("wordStep", 0.085)}
+    else:
+        kind = "hero"
+        data = {"text": title, "note": "", "rtl": cards_lang_direction(lang) == "rtl"}
     hook_beat = {"id": "reelkit-hook", "start": 0.0, "end": end,
-                 "kind": "hero", "mode": "top",
+                 "kind": kind, "mode": "top",
                  "intent": "mandatory scroll-stop hook",
                  "layout": {"top": 48, "scale": 0.72},
-                 "data": {"text": title, "note": "", "rtl": cards_lang_direction(lang) == "rtl"}}
+                 "data": data}
     beats = [b for b in plan.get("beats", []) if b.get("id") != "reelkit-hook"]
     kept = []
     for b in beats:
@@ -572,7 +597,7 @@ def build(project, _layouts=None, _pass=1):
         if isinstance(words, dict):
             words = words.get("words") or words.get("segments") or []
 
-    hook_title, hook_runners = ensure_mandatory_hook(project, plan, words)
+    hook_title, hook_runners = ensure_mandatory_hook(project, plan, words, _style=sty)
     hosts, tls, visuals, missing = [], [], [], []
 
     # ---- video framing: base scale + optional clause-driven punch-ins ------
@@ -936,7 +961,7 @@ def build(project, _layouts=None, _pass=1):
 <head><meta charset="utf-8"/>
 <style>
 {fonts}
-{theme_css(br, caps_cfg)}
+{theme_css(br, caps_cfg, sty.get('title'))}
 </style></head>
 <body>
 <div id="stage" data-composition-id="reelkit" data-start="0"

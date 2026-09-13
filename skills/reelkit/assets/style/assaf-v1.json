@@ -82,5 +82,11 @@
     "maxMarks": 2,
     "drawSeconds": 0.4,
     "severity": "error"
+  },
+  "title": {
+    "lockup": true,
+    "wordStep": 0.085,
+    "frameOne": true,
+    "scriptFont": "Georgia,'Times New Roman',serif"
   }
 }

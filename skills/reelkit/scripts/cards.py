@@ -669,6 +669,53 @@ def k_canvas(cid, d, br, an, st, en):
     return f'<div class="cpane">{block}<div class="cmedia">{frame}{cap}</div></div>', g
 
 
+def k_lockup(cid, d, br, an, st, en):
+    """The title lockup - a bold sans line, a script accent line, one accent.
+
+    Two things make it a lockup rather than a headline:
+
+    FRAME ONE. When the beat opens the reel, the first line is already on screen
+    at frame 0 - a `set`, not a `fromTo` from opacity 0, which would leave the
+    very first frame blank. That blank frame is the lead-in the reference reels
+    do not have, and it is the whole point of the treatment.
+
+    ONE ACCENT. Emphasis is a single highlighted word or a flat accent block -
+    type and one colour. No container that glows, no second accent competing
+    with the first.
+    """
+    D = DIR(br); A = _mk(br); g = []
+    main = str(d.get("main") or d.get("text") or "").strip()
+    if not main:
+        raise SystemExit(f"reelkit: lockup {cid} has no main line")
+    script = str(d.get("script") or "").strip()
+    hi_word = str(d.get("highlight") or "").strip()
+    acc = d.get("accentColor") or A(int(d.get("accent", 0)))
+    at_zero = float(st) <= 0.001
+
+    words, parts = main.split(), []
+    for i, w in enumerate(words):
+        cls = "lw lw-hi" if hi_word and w.casefold() == hi_word.casefold() else "lw"
+        style = f' style="--lhi:{acc}"' if "lw-hi" in cls else ""
+        parts.append(f'<span class="{cls}" id="{cid}-lw{i}"{style}>{esc(w)}</span>')
+    body = (f'<div class="lockup" dir="{D}">'
+            f'<div class="lockmain" id="{cid}-lmain">{" ".join(parts)}</div>'
+            + (f'<div class="lockscript" id="{cid}-lscript">{esc(script)}</div>' if script else "")
+            + "</div>")
+
+    step = float(d.get("wordStep", 0.085))
+    for i, _w in enumerate(words):
+        sel = S(cid, f"{cid}-lw{i}")
+        if i == 0 and at_zero:
+            # Present on frame 0. Everything after it cascades.
+            g.append(f"tl.set({sel},{{opacity:1,y:0}},{an.q(st)});")
+        else:
+            g.append(an.slide(sel, st + (0.10 if not at_zero else 0.0) + i * step, 0.30, dy=16))
+    if script:
+        g.append(an.fade(S(cid, f"{cid}-lscript"),
+                         st + (0.10 if not at_zero else 0.0) + len(words) * step + 0.06, 0.34))
+    return body, g
+
+
 def k_doodle(cid, d, br, an, st, en):
     D = DIR(br)
     """Escape hatch: the agent supplies raw inline SVG plus a list of
@@ -749,5 +796,5 @@ KINDS = {
     "hero": k_hero, "notification": k_notification, "chat": k_chat, "code": k_code,
     "diff": k_diff, "checklist": k_checklist, "donut": k_donut, "bars": k_bars,
     "pipeline": k_pipeline, "contrast": k_contrast, "chips": k_chips, "stat": k_stat,
-    "follow": k_follow, "doodle": k_doodle, "image": k_image, "canvas": k_canvas,
+    "follow": k_follow, "doodle": k_doodle, "lockup": k_lockup, "image": k_image, "canvas": k_canvas,
 }
