@@ -360,6 +360,77 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
 """.strip()
 
 
+# ------------------------------------------------------ mandatory hook title
+# The hook is a generated editorial layer, not a copy of the opening caption.
+# Selection is deterministic so video-in/video-out never blocks on a question.
+HE_HOOK_RULES = [
+    ({"נתקע", "להילחם", "לבד", "עזרה", "דגל"},
+     ["נתקעתם? אל תשחקו אותה גיבורים", "אם נתקעתם בשקט - כבר טעיתם", "זו לא עצמאות. זו טעות."]),
+    ({"טעות", "נכון", "לא נכון"},
+     ["רוב האנשים טועים דווקא כאן", "זה נשמע נכון. זה לא.", "הטעות שלא רואים בזמן"]),
+    ({"עבודה", "משרה", "ראיון"},
+     ["זה מה שלא מספרים בראיון", "הטעות שמפילה מועמדים", "רגע לפני שאתם עונים"]),
+]
+
+
+def select_hook(words, lang):
+    """Return (winner, runners_up, rationale) from transcript words.
+
+    Hooks are short pattern interrupts with tension/curiosity. Accurate lesson
+    summaries are deliberately not candidates. More language packs can be added
+    without changing the build contract.
+    """
+    text = " ".join(str(w.get("text", "")) for w in words).lower()
+    if str(lang).lower().split("-")[0] in ("he", "iw"):
+        best = None
+        for cues, candidates in HE_HOOK_RULES:
+            score = sum(1 for cue in cues if cue in text)
+            if best is None or score > best[0]: best = (score, candidates, cues)
+        if best and best[0]:
+            return best[1][0], best[1][1:3], "matched transcript tension cues: " + ", ".join(sorted(c for c in best[2] if c in text))
+        # Still a pattern interrupt, never a documentary title.
+        return "רגע - אתם בטוחים שזה נכון?", ["כאן רוב האנשים מפספסים", "זה נשמע הגיוני. עד שזה קורה."], "Hebrew curiosity fallback"
+    first = " ".join(w.get("text", "") for w in words[:7]).strip(" .,!?")
+    return "Wait - this changes the answer", ["Most people miss this part", "It sounds right. It isn't."], "generic tension fallback; opening context: " + first
+
+
+def ensure_mandatory_hook(project, plan, words):
+    """Materialize a mandatory hook beat and a review report.
+
+    The hook may overlap speech, but not another graphic. Existing graphics that
+    occupy its opening window are delayed or removed when less than 0.5s remains.
+    """
+    lang = plan.get("meta", {}).get("lang", "en")
+    hook = plan.get("hook") or {}
+    title = str(hook.get("title") or "").strip()
+    runners = hook.get("runnersUp") or []
+    rationale = hook.get("rationale") or "authored hook"
+    if not title:
+        title, runners, rationale = select_hook(words, lang)
+    end = round(min(4.0, max(2.6, float(hook.get("end", 3.6)))), 2)
+    hook_beat = {"id": "reelkit-hook", "start": 0.0, "end": end,
+                 "kind": "hero", "mode": "top",
+                 "intent": "mandatory scroll-stop hook",
+                 "layout": {"top": 48, "scale": 0.72},
+                 "data": {"text": title, "note": "", "rtl": cards_lang_direction(lang) == "rtl"}}
+    beats = [b for b in plan.get("beats", []) if b.get("id") != "reelkit-hook"]
+    kept = []
+    for b in beats:
+        b = dict(b)
+        if float(b.get("start", 0)) < end and float(b.get("end", 0)) > 0:
+            b["start"] = end
+            if float(b.get("end", 0)) - end < 0.5:
+                continue
+        kept.append(b)
+    plan["hook"] = {"title": title, "runnersUp": runners[:3], "rationale": rationale,
+                    "autoSelected": not bool(hook.get("title")), "style": "scroll-stop-v1"}
+    plan["beats"] = [hook_beat] + kept
+    report = ["# Hook selection", "", f"**Selected:** {title}", "", f"Reason: {rationale}", "", "## Runners-up"]
+    report += [f"- {x}" for x in runners[:3]] or ["- none"]
+    open(os.path.join(project, "HOOKS.md"), "w", encoding="utf-8").write("\n".join(report) + "\n")
+    return title, runners[:3]
+
+
 # ------------------------------------------------------------------ build
 def build(project):
     plan_path = os.path.join(project, "plan.json")
@@ -394,6 +465,7 @@ def build(project):
         if isinstance(words, dict):
             words = words.get("words") or words.get("segments") or []
 
+    hook_title, hook_runners = ensure_mandatory_hook(project, plan, words)
     hosts, tls, visuals, missing = [], [], [], []
 
     # ---- video framing: base scale + optional clause-driven punch-ins ------
@@ -778,7 +850,9 @@ window.__timelines["reelkit"] = tl;
               f"{len(visuals)-len(missing)} present, {len(missing)} missing")
     for m in missing:
         print(f"  ! missing image: public/images/{m}.png")
-    print("reelkit: wrote public/index.html, visuals.json, BEATS.md")
+    print(f"reelkit: hook selected: {hook_title}")
+    for runner in hook_runners: print(f"reelkit: hook runner-up: {runner}")
+    print("reelkit: wrote public/index.html, visuals.json, BEATS.md, HOOKS.md")
     return 0
 
 
@@ -1241,7 +1315,8 @@ def draft_plan(project, lang, max_beats):
 
         kind, data = None, {}
         if bi == 0:
-            kind, data = "hero", {"text": "TODO short hook, 2-4 words", "note": ""}
+            hook_title, hook_runners, hook_reason = select_hook(words, lang)
+            kind, data = "hero", {"text": hook_title, "note": ""}
         elif bi == len(beats) - 1:
             kind, data = "follow", {"kicker": "TODO", "headline": "TODO the open loop",
                                     "name": "TODO", "handle": "TODO", "initial": "A", "cta": "Follow"}
@@ -1282,6 +1357,8 @@ def draft_plan(project, lang, max_beats):
                    "TODO and read references/visual-beats.md before adding any visual."),
         "meta": {"title": "TODO", "lang": lang, "fps": 30, "width": 1080, "height": 1920},
         "brand": "default",
+        "hook": {"title": select_hook(words, lang)[0], "runnersUp": select_hook(words, lang)[1],
+                 "rationale": select_hook(words, lang)[2], "autoSelected": True},
         "captions": {"enabled": True},
         "framing": {"scale": 1.0, "origin": "50% 30%", "punches": [
             {"at": round(float(f[0]["start"]), 2),
@@ -1515,7 +1592,7 @@ def _checkpoint_bundle(project, checkpoint_dir):
     }
     mpath = os.path.join(project, ".reelkit-render-manifest.json")
     json.dump(manifest, open(mpath, "w", encoding="utf-8"), indent=2)
-    wanted = ["plan.json", "transcript.json", "ASSETS.md", "visuals.json", "BEATS.md",
+    wanted = ["plan.json", "transcript.json", "ASSETS.md", "visuals.json", "BEATS.md", "HOOKS.md",
               ".reelkit-render-manifest.json", "public/index.html", "public/cards",
               "public/images", "public/fonts", "public/sfx"]
     with tarfile.open(tmp, "w:gz") as tf:
