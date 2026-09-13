@@ -50,15 +50,15 @@ class FrameOne(unittest.TestCase):
 class OneAccent(unittest.TestCase):
     def test_the_highlighted_word_gets_the_accent_and_the_others_do_not(self):
         b,_=build({'main':'one file whole reel','highlight':'whole'})
-        self.assertEqual(b.count('lw-hi'),1)
+        self.assertEqual(b.count('lw-accent'),1)
 
     def test_highlight_matching_is_case_insensitive(self):
         b,_=build({'main':'One FILE','highlight':'file'})
-        self.assertIn('lw-hi',b)
+        self.assertIn('lw-accent',b)
 
     def test_no_highlight_means_no_accent_span(self):
         b,_=build({'main':'one file'})
-        self.assertNotIn('lw-hi',b)
+        self.assertNotIn('lw-accent',b)
 
     def test_the_accent_is_flat_not_a_halo(self):
         """'NO neon boxes' - the accent is a colour, never a glow."""
@@ -103,6 +103,82 @@ class ProfileControlled(unittest.TestCase):
         """The lockup changes what the hook LOOKS like, never whether it exists."""
         src=(ROOT/'skills/reelkit/scripts/reelkit.py').read_text()
         self.assertIn('"id": "reelkit-hook", "start": 0.0',src)
+
+
+
+class MixedTypeface(unittest.TestCase):
+    """Heavy bold sans base line, script-italic accent word. The contrast IS the
+    lockup - a script line stacked under a sans line is two headlines."""
+
+    def test_the_accent_word_takes_the_script_face(self):
+        b,_=build({'main':'one file whole reel','highlight':'whole'})
+        self.assertIn('lw-accent',b)
+
+    def test_only_the_accent_word_does(self):
+        b,_=build({'main':'one file whole reel','highlight':'whole'})
+        self.assertEqual(b.count('lw-accent'),1)
+
+    def test_marker_is_the_default_treatment(self):
+        b,_=build({'main':'a whole b','highlight':'whole'})
+        self.assertIn('lw-marker',b); self.assertNotIn('lwring',b)
+
+    def test_circle_draws_a_ring_around_the_accent(self):
+        b,g=build({'main':'a whole b','highlight':'whole','accentStyle':'circle'})
+        self.assertIn('lwring',b)
+        self.assertTrue(any('strokeDashoffset' in x for x in g),'the ring does not draw on')
+
+    def test_a_circled_number_works(self):
+        """Yuval's circled-number doodle is the same treatment on a numeral."""
+        b,_=build({'main':'rule 3 always','highlight':'3','accentStyle':'circle'})
+        self.assertIn('lwring',b)
+
+    def test_the_two_treatments_are_exclusive(self):
+        b,_=build({'main':'a whole b','highlight':'whole','accentStyle':'circle'})
+        self.assertNotIn('lw-marker',b,'a ring AND a block is two treatments')
+
+    def test_plain_takes_the_face_and_no_treatment(self):
+        b,_=build({'main':'a whole b','highlight':'whole','accentStyle':'plain'})
+        self.assertIn('lw-accent',b)
+        self.assertNotIn('lw-marker',b); self.assertNotIn('lwring',b)
+
+    def test_an_unknown_accent_style_is_refused(self):
+        with self.assertRaises(SystemExit) as e:
+            build({'main':'a whole b','highlight':'whole','accentStyle':'neon'})
+        self.assertIn('neon',str(e.exception))
+
+    def test_the_ring_costs_nothing_from_the_heavy_budget(self):
+        b,_=build({'main':'a whole b','highlight':'whole','accentStyle':'circle'})
+        self.assertEqual(heavy.count(f'<html><body>{b}</body></html>')[0],0)
+
+    def test_the_highlight_colour_comes_from_the_profile(self):
+        self.assertEqual(style.load('assaf-v1')[0]['title']['highlightColor'],'#FFD84D')
+        self.assertIn('highlightColor',style.SCHEMA['title'])
+
+    def test_hebrew_accent_keeps_its_place_in_an_rtl_line(self):
+        b,_=build({'main':'קובץ אחד שלם','highlight':'אחד'},dirn='rtl')
+        self.assertIn('dir="rtl"',b)
+        self.assertLess(b.index('קובץ'),b.index('אחד'),'word order must stay logical')
+
+
+class TheHookIsGated(unittest.TestCase):
+    """The mandatory hook is materialised during build and never written back to
+    plan.json, while verify read plan.json - so the one card on screen at frame 0
+    of every reel was never measured against the head zone. Caught while wiring
+    this slice; the gate reads the built beats now."""
+
+    def test_build_records_what_it_actually_built(self):
+        src=(ROOT/'skills/reelkit/scripts/reelkit.py').read_text()
+        self.assertIn('built-beats.json',src)
+
+    def test_verify_prefers_the_built_beats(self):
+        src=(ROOT/'skills/reelkit/scripts/verify.py').read_text()
+        i=src.index('built-beats.json')
+        self.assertIn('plan = dict(plan, beats=b)',src[i:i+400])
+
+    def test_a_damaged_sidecar_falls_back_rather_than_crashing(self):
+        src=(ROOT/'skills/reelkit/scripts/verify.py').read_text()
+        i=src.index('built-beats.json')
+        self.assertIn('except Exception',src[i:i+400])
 
 
 if __name__=='__main__': unittest.main()

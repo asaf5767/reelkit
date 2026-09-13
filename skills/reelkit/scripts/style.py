@@ -49,7 +49,8 @@ SCHEMA = {
     # WHICH mark and where it points is the plan's business, not the profile's.
     "doodle": {"maxMarks", "drawSeconds", "severity"},
     # Slice 5. The lockup that opens the reel.
-    "title": {"lockup", "scriptFont", "wordStep", "frameOne"},
+    "title": {"lockup", "scriptFont", "wordStep", "frameOne",
+              "accentStyle", "highlightColor"},
 }
 VOICE_KEYS = {"enabled", "highpassHz", "compressor", "eq", "limiter"}
 DUCK_KEYS = {"enabled", "threshold", "ratio", "attackMs", "releaseMs"}

@@ -692,11 +692,41 @@ def k_lockup(cid, d, br, an, st, en):
     acc = d.get("accentColor") or A(int(d.get("accent", 0)))
     at_zero = float(st) <= 0.001
 
+    # The mixed-typeface lockup: heavy bold sans for the base line, and the
+    # accent word set in the script italic face so the two read as one lockup
+    # rather than two stacked headlines. The accent then carries ONE treatment -
+    # a marker block behind it, or a drawn ring around it. Never both, never a
+    # glow: the emphasis is the typeface change plus a single flat colour.
+    style_name = str(d.get("accentStyle") or "marker").lower()
+    if style_name not in ("marker", "circle", "plain"):
+        raise SystemExit(f"reelkit: lockup {cid} has unknown accentStyle "
+                         f"{style_name!r}; have marker, circle, plain")
     words, parts = main.split(), []
+    accent_i = None
     for i, w in enumerate(words):
-        cls = "lw lw-hi" if hi_word and w.casefold() == hi_word.casefold() else "lw"
-        style = f' style="--lhi:{acc}"' if "lw-hi" in cls else ""
-        parts.append(f'<span class="{cls}" id="{cid}-lw{i}"{style}>{esc(w)}</span>')
+        is_acc = bool(hi_word) and w.casefold() == hi_word.casefold()
+        if is_acc and accent_i is None:
+            accent_i = i
+        cls = "lw"
+        inner = esc(w)
+        if is_acc:
+            cls += f" lw-accent lw-{style_name}"
+            if style_name == "circle":
+                # The ring is stretched onto the word's own box by the CSS, so
+                # it encircles the accent without anything being measured.
+                ring, length = _marks.mark_svg(f"{cid}-lring", "circle-scribble",
+                                               f"{cid}:lockup", {"loops": 1},
+                                               color=acc, width=26)
+                inner = (f'<span class="lwt">{esc(w)}</span>'
+                         f'<svg class="lwring" viewBox="0 0 {_marks.VIEW} {_marks.VIEW}" '
+                         f'preserveAspectRatio="none" aria-hidden="true">{ring}</svg>')
+                g.append(an.draw(S(cid, f"{cid}-lring"),
+                                 st + float(d.get("accentAt", 0.42)), 0.46, length))
+            else:
+                inner = f'<span class="lwt">{esc(w)}</span>'
+        style = f' style="--lhi:{acc}"' if is_acc else ""
+        parts.append(f'<span class="{cls}" id="{cid}-lw{i}"{style}>{inner}</span>')
+
     body = (f'<div class="lockup" dir="{D}">'
             f'<div class="lockmain" id="{cid}-lmain">{" ".join(parts)}</div>'
             + (f'<div class="lockscript" id="{cid}-lscript">{esc(script)}</div>' if script else "")

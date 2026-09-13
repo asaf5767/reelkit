@@ -142,6 +142,17 @@ def overlap_pct(a, b):
 # ------------------------------------------------------------------ main
 def run(project, as_json, fix):
     plan = json.load(open(os.path.join(project, "plan.json"), encoding="utf-8"))
+    # Gate what was BUILT, not what was authored. build materialises the
+    # mandatory hook and resolves card layouts; reading plan.json alone left the
+    # opening card - the only one guaranteed to exist in every reel - unmeasured.
+    built = os.path.join(project, "built-beats.json")
+    if os.path.exists(built):
+        try:
+            b = json.load(open(built, encoding="utf-8")).get("beats")
+            if b:
+                plan = dict(plan, beats=b)
+        except Exception:
+            pass                    # a damaged sidecar falls back to the plan
     meta = plan.get("meta", {})
     W = int(meta.get("width", 1080)); H = int(meta.get("height", 1920))
     pub = os.path.join(project, "public")

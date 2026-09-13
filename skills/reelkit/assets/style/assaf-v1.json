@@ -87,6 +87,8 @@
     "lockup": true,
     "wordStep": 0.085,
     "frameOne": true,
-    "scriptFont": "Georgia,'Times New Roman',serif"
+    "scriptFont": "Georgia,'Times New Roman',serif",
+    "accentStyle": "marker",
+    "highlightColor": "#FFD84D"
   }
 }

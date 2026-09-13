@@ -172,8 +172,18 @@ background:linear-gradient(180deg,rgba(5,6,10,0) 0%,rgba(5,6,10,.30) 45%,rgba(5,
 .lockmain{{font-size:96px;font-weight:900;line-height:1.06;letter-spacing:-.01em;
  display:flex;flex-wrap:wrap;gap:.24em;justify-content:center;}}
 .lockmain .lw{{display:inline-block;opacity:0;}}
-/* The single accent. A flat block, not a halo. */
-.lockmain .lw-hi{{color:#0B0D12;background:var(--lhi);border-radius:16px;padding:0 .16em;}}
+/* The accent word is where the typefaces mix: the base line stays heavy sans,
+   the accent takes the script italic face. That contrast IS the lockup. */
+.lockmain .lw-accent{{font-family:{SCRIPTFONT};font-style:italic;font-weight:700;}}
+/* One treatment behind it, never two, never a glow. */
+.lockmain .lw-marker{{color:#0B0D12;background:var(--lhi);border-radius:16px;
+ padding:0 .16em;}}
+.lockmain .lw-circle{{position:relative;color:var(--lhi);padding:0 .10em;}}
+.lockmain .lw-circle .lwt{{position:relative;z-index:1;}}
+/* The ring is stretched onto the accent's own box, so it encircles the word
+   without anything being measured at build time. */
+.lockmain .lwring{{position:absolute;left:-9%;top:-20%;width:118%;height:140%;
+ overflow:visible;pointer-events:none;}}
 .lockscript{{font-family:{SCRIPTFONT};font-style:italic;font-weight:600;
  font-size:52px;opacity:0;}}
 .cap-host .cw{{display:inline-block;}}
@@ -486,6 +496,8 @@ def ensure_mandatory_hook(project, plan, words, _style=None):
         kind = "lockup"
         data = {"main": hk.get("main") or title, "script": hk.get("script", ""),
                 "highlight": hk.get("highlight", ""),
+                "accentStyle": hk.get("accentStyle") or tcfg.get("accentStyle", "marker"),
+                "accentColor": tcfg.get("highlightColor"),
                 "wordStep": tcfg.get("wordStep", 0.085)}
     else:
         kind = "hero"
@@ -1031,6 +1043,14 @@ window.__timelines["reelkit"] = tl;
     # segments instead of silently resuming pre-edit pixels.
     json.dump(sty_prov, open(os.path.join(project, "style-used.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
+
+    # The beats that were actually BUILT, hook included. verify reads plan.json,
+    # and the mandatory hook is materialised here rather than written back to the
+    # plan - so the one card on screen at frame 0 of every reel was never
+    # measured against the head zone. It is now, because the gate reads this.
+    json.dump({"beats": plan["beats"]},
+              open(os.path.join(project, "built-beats.json"), "w", encoding="utf-8"),
+              ensure_ascii=False, indent=1)
 
     print(f"reelkit: style {sty_prov['profile']} v{sty_prov['version']}"
           + (f" (extends {' -> '.join(sty_prov['extends'])})" if sty_prov["extends"] else "")
