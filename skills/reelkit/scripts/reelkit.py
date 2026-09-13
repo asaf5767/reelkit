@@ -1827,12 +1827,19 @@ def export_deliverable(project, inp, out):
             and a.get("codec_name") in (None, "aac"):
         # Codecs already safe: lossless remux to bring the index forward and
         # write the colour tags.
-        cmd = ["ffmpeg", "-y", "-i", src, "-c", "copy", "-movflags", "+faststart",
+        # Map explicitly. Without it `-c copy` carries whatever the source has,
+        # and a phone clip's timecode/telemetry track rides all the way into the
+        # deliverable - the leak the container audit caught on Kaggle. `0:a:0?`
+        # keeps a silent source working rather than failing on a missing stream.
+        cmd = ["ffmpeg", "-y", "-i", src,
+               "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+               "-c", "copy", "-movflags", "+faststart",
                "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1",
                dst, "-loglevel", "error"]
         how = "remuxed (codecs already phone-safe)"
     else:
         cmd = ["ffmpeg", "-y", "-i", src,
+               "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
                "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-profile:v", "high",
                "-pix_fmt", "yuv420p", "-color_primaries", "1", "-color_trc", "1",
                "-colorspace", "1", "-movflags", "+faststart",
@@ -1859,7 +1866,9 @@ def export_deliverable(project, inp, out):
         # from one directory would also share that fixed name and feed each
         # other's statistics into the second pass.
         plog = dst + ".passlog"
-        base = ["ffmpeg", "-y", "-i", dst, "-c:v", "libx264", "-preset", "slow",
+        base = ["ffmpeg", "-y", "-i", dst,
+                "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+                "-c:v", "libx264", "-preset", "slow",
                 "-b:v", f"{vkbps}k", "-pix_fmt", "yuv420p", "-passlogfile", plog,
                 "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1"]
         try:

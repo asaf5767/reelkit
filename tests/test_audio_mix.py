@@ -299,4 +299,53 @@ class ContainerAuditRejectsStrayStreams(unittest.TestCase):
             self.assertEqual(reelkit._extra_streams(f),[])
 
 
+
+class TimecodeTrackCannotRideThrough(unittest.TestCase):
+    """The v17 failure. `-dn -sn` drops data streams that are COPIED, but the
+    mp4 muxer RE-CREATES a tmcd timecode track from the input's metadata
+    whatever you map - only `-write_tmcd 0` stops it. Mapping alone looked like
+    the fix and was not, which is why this is tested end to end on a real file
+    rather than by reading the command."""
+
+    def dirty(self,d):
+        """A file carrying a timecode track, as a phone or camera source does."""
+        import subprocess,os
+        f=os.path.join(d,'src.mp4')
+        subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi','-i','color=c=black:s=64x64:d=1',
+                        '-f','lavfi','-i','sine=frequency=200:duration=1','-map','0:v','-map','1:a',
+                        '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',
+                        '-timecode','00:00:00:00',f],check=True)
+        return f
+
+    def test_export_strips_it(self):
+        import reelkit,tempfile,os
+        if not shutil_which('ffmpeg'): self.skipTest('ffmpeg not installed')
+        with tempfile.TemporaryDirectory() as d:
+            src=self.dirty(d)
+            self.assertEqual(reelkit._extra_streams(src),['data'],'fixture is not dirty')
+            out=os.path.join(d,'out.mp4')
+            reelkit.export_deliverable(d,src,out)
+            self.assertEqual(reelkit._extra_streams(out),[],
+                             'a timecode track survived export into the deliverable')
+
+    def test_the_mix_strips_it_too(self):
+        import reelkit,tempfile,os
+        if not shutil_which('ffmpeg'): self.skipTest('ffmpeg not installed')
+        with tempfile.TemporaryDirectory() as d:
+            src=self.dirty(d)
+            pub=Path(d)/'public'; pub.mkdir()
+            (pub/'index.html').write_text('<html></html>',encoding='utf-8')
+            out=os.path.join(d,'mixed.mp4')
+            audiomix.mix(d,src,src,out,log=lambda *a: None)
+            self.assertEqual(reelkit._extra_streams(out),[])
+
+    def test_every_mux_path_suppresses_it(self):
+        """Five paths write an mp4; a new one that forgets this reintroduces the
+        leak, so the count is asserted rather than the behaviour of one."""
+        rk=(ROOT/'skills/reelkit/scripts/reelkit.py').read_text()
+        am=(ROOT/'skills/reelkit/scripts/audiomix.py').read_text()
+        self.assertEqual(rk.count('"-write_tmcd", "0"'),3)
+        self.assertEqual(am.count('"-write_tmcd", "0"'),2)
+
+
 if __name__=='__main__': unittest.main()

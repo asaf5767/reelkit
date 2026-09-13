@@ -168,7 +168,7 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
     fc, label = filtergraph(cue_list, voice, duck, speech=1, cue_base=2)
     if fc is None:
         cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_in, "-i", source_audio,
-               "-map", "0:v:0", "-map", "1:a:0", "-dn", "-sn",
+               "-map", "0:v:0", "-map", "1:a:0", "-dn", "-sn", "-write_tmcd", "0",
                "-c", "copy", "-shortest", out]
         log("reelkit audio: no cues and no voice chain - straight mux")
     else:
@@ -176,7 +176,8 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
         for c in cue_list:
             cmd += ["-i", c["path"]]
         cmd += ["-filter_complex", fc, "-map", "0:v:0", "-map", label,
-                "-dn", "-sn", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-dn", "-sn", "-write_tmcd", "0",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                 "-shortest", out]
         log(f"reelkit audio: {len(cue_list)} cue(s)"
             + (", voice chain" if voice_filters(voice) else "")
