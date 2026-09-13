@@ -261,9 +261,14 @@ covers what is worth cutting.
 
 ## 9. Audio
 
-**Sound effects are automatic and tested.** `build` places event-tied cues on its
-own - whoosh on scene changes, pop on hero text, click on UI cards, soft hit on
-data reveals, riser into the CTA - and ducks every cue under the measured voice.
+**Sound effects are automatic, tested, and code-enforced.** `build` places
+event-tied cues on its own - whoosh on every beat entrance, pop on hero text,
+click on UI cards, soft hit on data reveals, riser into the CTA - and ducks every
+cue under the measured voice. A plan with beats and zero resolved cues is a hard
+error, not a warning: a silent export is a failed render. When the bundled
+media-use library is absent (CI, Kaggle, fresh clones), reelkit synthesizes its
+own stand-ins into `~/.cache/reelkit/sfx-synth` so the layer can never silently
+vanish; install the real library to upgrade the sounds.
 A beat with its own `sfx` list overrides the automation for that beat:
 
 ```jsonc
