@@ -20,6 +20,8 @@ import argparse,json,os,subprocess,sys
 from pathlib import Path
 
 HERE=Path(__file__).resolve().parent
+sys.path.insert(0,str(HERE))
+from reelkit import GATE_DEPS  # noqa: E402 - one list of gate capabilities, not two
 REELKIT=HERE/'reelkit.py'
 ASSETS=HERE/'assets.py'
 
@@ -50,10 +52,14 @@ def gate(project,stage):
  vj=Path(project)/'verify.json'
  if not vj.exists(): raise SystemExit(f'[worker] {stage}: verify wrote no verify.json - gate cannot run, blocking delivery')
  v=json.loads(vj.read_text())
- skipped=[k for k in ('cardGeometry','faceDetection') if not v.get(k)]
+ # GATE_DEPS is reelkit's list, imported rather than repeated: this used to be a
+ # second hardcoded tuple here, and adding a capability to one left the other
+ # silently accepting a gate that had not run.
+ skipped=[(k,dep) for k,dep in GATE_DEPS if not v.get(k)]
  if skipped:
-  raise SystemExit(f'[worker] {stage}: verify could not measure {", ".join(skipped)} '
-                   '(Playwright / OpenCV missing) - a gate that cannot run blocks delivery')
+  raise SystemExit(f'[worker] {stage}: verify could not measure '
+                   + ', '.join(f'{k} ({dep})' for k,dep in skipped)
+                   + ' - a gate that cannot run blocks delivery')
  errs=[f for f in map(finding, v.get('findings',[])) if f[0]=='ERROR']
  if code!=0 or errs:
   for level,cid,msg in errs: log(stage,f'ERROR {cid}: {msg}')

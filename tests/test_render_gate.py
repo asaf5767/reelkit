@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'skills/reelkit/scripts'))
 import reelkit  # noqa: E402
 
-OK={'cardGeometry':True,'faceDetection':True,'findings':[]}
+OK={'cardGeometry':True,'faceDetection':True,'compositionCheck':True,'findings':[]}
 
 
 class GateDecision(unittest.TestCase):
@@ -64,7 +64,7 @@ class GateCannotRun(unittest.TestCase):
         self.assertIn('playwright install',p)
 
     def test_unmeasured_run_blocks_even_with_no_findings(self):
-        self.assertTrue(reelkit.gate_problems({'cardGeometry':False,'faceDetection':False}))
+        self.assertTrue(reelkit.gate_problems({'cardGeometry':False,'faceDetection':False,'compositionCheck':False}))
 
 
 class DependenciesAreDeclared(unittest.TestCase):
