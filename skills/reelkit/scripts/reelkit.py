@@ -1544,6 +1544,35 @@ def export_deliverable(project, inp, out):
     if left:
         die("export wrote a file that still fails its own container check: "
             + "; ".join(m for _, m in left))
+    # WhatsApp's video bar is 16MB. crf-23 quality encoding ignores size, so a
+    # high-motion render sails past it (a 32s reel landed at 36MB once). When
+    # that happens, fall back to a two-pass targeted encode derived from the
+    # real duration; the cap keeps headroom for container overhead.
+    SIZE_CAP = 15 * 1024 * 1024
+    if os.path.getsize(dst) > SIZE_CAP:
+        dur = probe_duration(dst)
+        vkbps = max(200, int(SIZE_CAP * 8 / 1000 / dur) - 128)
+        tmp = dst + ".cap.tmp.mp4"
+        base = ["ffmpeg", "-y", "-i", dst, "-c:v", "libx264", "-preset", "slow",
+                "-b:v", f"{vkbps}k", "-pix_fmt", "yuv420p",
+                "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1"]
+        r1 = sh(base + ["-pass", "1", "-an", "-f", "null", os.devnull,
+                        "-loglevel", "error"])
+        r2 = sh(base + ["-pass", "2", "-c:a", "aac", "-b:a", "128k",
+                        "-movflags", "+faststart", tmp, "-loglevel", "error"])
+        if r1.returncode == 0 and r2.returncode == 0 and os.path.exists(tmp) \
+                and os.path.getsize(tmp) <= 16 * 1024 * 1024:
+            os.replace(tmp, dst)
+            how += ", then size-capped under the 16MB WhatsApp bar"
+        else:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            die(f"export is {os.path.getsize(dst)} bytes and the two-pass "
+                f"size-cap encode failed:\n{(r1.stderr + r2.stderr)[-1200:]}")
+        left = [(l, m) for l, m in container_problems(dst) if l == "ERROR"]
+        if left:
+            die("size-capped export fails the container check: "
+                + "; ".join(m for _, m in left))
     print(f"reelkit: {how} -> {dst} ({probe_duration(dst):.2f}s)")
     print("reelkit: container audit clean (moov first, bt709 tagged, h264/yuv420p/aac)")
     return 0
