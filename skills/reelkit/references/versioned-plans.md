@@ -29,3 +29,7 @@ Auto-pick the strongest scroll-stopping title and render without blocking the vi
 Accepted Hebrew pattern: `נתקעתם? אל תשחקו אותה גיבורים` - direct address, tension, and a native pattern interrupt before the reel explains itself.
 
 Rejected pattern: lesson-summary hooks such as `מתי להרים דגל?`, `לא צריך להילחם בשקט`, and `לבקש עזרה זו מיומנות`. They accurately summarize the topic but do not stop the scroll. Accuracy is necessary; summary shape is not enough.
+
+## Service-compatible, not a service
+
+Keep each stage explicit, config-driven, cacheable and callable with project paths so a future service wrapper can orchestrate the same commands. Do not add SaaS-only work now: no multi-tenancy, user auth, hosted control plane, billing, provider queue abstraction, or remote job database. The current product is the single-user video-in/video-out pipeline.
