@@ -46,7 +46,17 @@ def transcribe(project):
  print(f'{out} ({len(words)} words, {status}, {model}/{lang})')
 def author(project):
  p=Path(project); transcript=json.loads((p/'transcript.json').read_text()); request=p/'author-request.json'; response=p/'author-response.json'
- atomic_json(request,{'contract':'Return a complete Reelkit graphics plan. Mandatory scroll-stop hook; runners-up; concrete literal/process visuals only; preserve cut timing.','transcript':transcript})
+ req={'contract':'Return a complete Reelkit graphics plan. Mandatory scroll-stop hook; runners-up; concrete literal/process visuals only; preserve cut timing.','transcript':transcript}
+ # A repair round hands the author what the gate measured, so the next plan is a
+ # correction rather than another guess. Findings are [level, beat, message].
+ vj=p/'verify.json'
+ if vj.exists():
+  errs=[f for f in json.loads(vj.read_text()).get('findings',[]) if f and f[0]=='ERROR']
+  if errs:
+   req['findings']=errs; req['contract']+=' The previous plan failed the geometry gate; fix the listed beats.'
+   pj=p/'plan.json'
+   if pj.exists(): req['previousPlan']=json.loads(pj.read_text())
+ atomic_json(request,req)
  adapter=os.getenv('REELKIT_PLAN_AUTHOR_CMD')
  if not adapter: raise SystemExit('REELKIT_PLAN_AUTHOR_CMD is required for assisted authoring')
  command(adapter,{'request':request,'response':response}); proposal=json.loads(response.read_text())
