@@ -591,16 +591,54 @@ def k_chips(cid, d, br, an, st, en):
     return f'<div class="stack"><div class="chips" dir="{D}">{cs}</div></div>', g
 
 
+
+def _mark_layer(cid, d, A):
+    """Transparent hand-drawn marks inside a card's own artifact box.
+
+    Marks used to require a separate doodle beat. That made a real annotation
+    overlap the artifact beat in time, which the overlap/text-occlusion gates
+    correctly rejected. `data.marks` now annotates stat/image artifacts in the
+    same card: one beat, one surface, transparent SVG strokes on top.
+    """
+    ms = d.get("marks") or []
+    if not ms:
+        return ""
+    paths = []
+    for i, m in enumerate(ms):
+        name = m.get("mark")
+        eid = f"{cid}-mk{i}"
+        path, _length = _marks.mark_svg(
+            eid, name, f"{cid}:{i}:{name}", m,
+            color=m.get("color") or A(int(m.get("accent", 0))),
+            width=int(m.get("width", 10)))
+        paths.append(path)
+    return (f'<svg class="dmarks" viewBox="0 0 {_marks.VIEW} {_marks.VIEW}" '
+            f'preserveAspectRatio="none" aria-hidden="true">{"".join(paths)}</svg>')
+
+
+def _mark_anims(cid, d, an, st):
+    out = []
+    draw_s = float(d.get("drawSeconds", 0.40))
+    for i, m in enumerate(d.get("marks") or []):
+        name = m.get("mark")
+        _path, length = _marks.mark_svg(f"{cid}-mk{i}", name, f"{cid}:{i}:{name}", m)
+        out.append(an.draw(S(cid, f"{cid}-mk{i}"),
+                           st + float(m.get("at", 0.15 + 0.18 * i)),
+                           float(m.get("dur", draw_s)), length))
+    return out
+
 def k_stat(cid, d, br, an, st, en):
     D = DIR(br)
     A = _mk(br); g = []
     b = (f'<div class="blk center">'
          + (f'<div id="{cid}-n" class="note" dir="{D}">{esc(d["note"])}</div>' if d.get("note") else "")
          + f'<div id="{cid}-num" class="bignum" style="color:{A(1)}">{int(d.get("from",0))}</div>'
-         + (f'<div id="{cid}-u" class="unit" dir="{D}">{esc(d["unit"])}</div>' if d.get("unit") else "") + '</div>')
+         + (f'<div id="{cid}-u" class="unit" dir="{D}">{esc(d["unit"])}</div>' if d.get("unit") else "")
+         + _mark_layer(cid, d, A) + '</div>')
     if d.get("note"): g.append(an.fade(S(cid, cid + "-n"), st + 0.05, 0.35))
     g.append(an.count(S(cid, cid + "-num"), st + 0.30, float(d.get("dur", 1.15)), int(d.get("from", 0)), int(d["to"])))
     if d.get("unit"): g.append(an.fade(S(cid, cid + "-u"), st + 0.45, 0.40))
+    g += _mark_anims(cid, d, an, st)
     return b, g
 
 
@@ -902,7 +940,8 @@ def k_image(cid, d, br, an, st, en):
     label = (f'<div id="{cid}-label" class="imglabel" dir="{D}">{kinetic(cid + "-label-text", d["label"], "imglabeltext", D)}</div>'
              if d.get("label") else "")
     b = (f'<div class="stagewrap"><div id="{cid}-frame" class="imgframe {d.get("frame","soft")}">'
-         f'<img id="{cid}-img" src="images/{cid}.png" alt=""/>{label}</div>{cap}</div>')
+         f'<img id="{cid}-img" src="images/{cid}.png" alt=""/>{label}'
+         f'{_mark_layer(cid, d, _mk(br))}</div>{cap}</div>')
     g.append(an.pop(S(cid, cid + "-frame"), st + 0.10, 0.55, 0.86))
     g.append(an.kenburns(S(cid, cid + "-img"), st + 0.10, max(0.5, en - st - 0.3), 1.0, float(d.get("zoom", 1.08))))
     if d.get("label"):
@@ -911,6 +950,7 @@ def k_image(cid, d, br, an, st, en):
         g.append(an.pulse(S(cid, cid + "-label"), st + 1.02, 0.16, 1.045, 1))
     if d.get("caption"):
         g.append(an.slide(S(cid, cid + "-cap"), st + 0.55, 0.42, dy=26))
+    g += _mark_anims(cid, d, an, st)
     return b, g
 
 
@@ -920,4 +960,4 @@ KINDS = {
     "pipeline": k_pipeline, "contrast": k_contrast, "chips": k_chips, "stat": k_stat,
     "follow": k_follow, "doodle": k_doodle, "lockup": k_lockup, "outro": k_outro,
     "progress": k_progress, "lowerthird": k_lowerthird, "image": k_image, "canvas": k_canvas,
-}
+ }
