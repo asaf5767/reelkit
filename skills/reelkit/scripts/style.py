@@ -48,6 +48,9 @@ SCHEMA = {
     # Slice 3. How many marks a moment may carry and how long one draws for.
     # WHICH mark and where it points is the plan's business, not the profile's.
     "doodle": {"maxMarks", "drawSeconds", "severity"},
+    # Slice 5. The lockup that opens the reel.
+    "title": {"lockup", "scriptFont", "wordStep", "frameOne",
+              "accentStyle", "highlightColor"},
 }
 VOICE_KEYS = {"enabled", "highpassHz", "compressor", "eq", "limiter"}
 DUCK_KEYS = {"enabled", "threshold", "ratio", "attackMs", "releaseMs"}
@@ -280,6 +283,21 @@ def doodle_findings(resolved, plan):
                         f"{n} hand-drawn marks on one beat; the {resolved['name']} profile "
                         f"allows {cap}. Past that they read as clutter rather than emphasis."))
     return out
+
+
+def dwell_window(resolved):
+    """The dwell the profile enforces, as (min, max) seconds, or (None, None)
+    when it enforces none.
+
+    The PLANNER reads this, not just the gate. A pipeline whose own generated
+    plan trips its own pacing rule is the pipeline failing its doctrine, so the
+    two sides have to read the same number from the same place - the gate stays
+    fail-closed either way, and this is what keeps it from having to fire.
+    """
+    p = resolved.get("pacing") or {}
+    if p.get("severity", "off") == "off":
+        return None, None
+    return p.get("dwellMin"), p.get("dwellMax")
 
 
 def pacing_findings(resolved, plan):

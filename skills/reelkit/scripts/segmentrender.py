@@ -43,6 +43,11 @@ def boundaries(plan, duration, target, grid_fps=10):
 def shift_plan(plan,start,end):
     q=copy.deepcopy(plan); fps=int(q.get('meta',{}).get('fps',30)); dur=end-start
     q.setdefault('meta',{})['duration']=dur
+    # Where this segment sits in the reel. build materialises the mandatory hook
+    # only at the reel's opening, and without this every segment looked like the
+    # opening: a hook card again at 12s and 24s, and the first beat of each later
+    # segment re-cut around a hook window that should not have existed.
+    q['meta']['reelOffset']=round(start,4)
     # Intermediate boundaries are exact on both 10fps and 30fps grids, so they
     # must not trim. Only the final segment inherits Reelkit's global tail trim.
     q['meta']['trimTail']=False

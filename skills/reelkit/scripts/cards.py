@@ -669,6 +669,83 @@ def k_canvas(cid, d, br, an, st, en):
     return f'<div class="cpane">{block}<div class="cmedia">{frame}{cap}</div></div>', g
 
 
+def k_lockup(cid, d, br, an, st, en):
+    """The title lockup - a bold sans line, a script accent line, one accent.
+
+    Two things make it a lockup rather than a headline:
+
+    FRAME ONE. When the beat opens the reel, the first line is already on screen
+    at frame 0 - a `set`, not a `fromTo` from opacity 0, which would leave the
+    very first frame blank. That blank frame is the lead-in the reference reels
+    do not have, and it is the whole point of the treatment.
+
+    ONE ACCENT. Emphasis is a single highlighted word or a flat accent block -
+    type and one colour. No container that glows, no second accent competing
+    with the first.
+    """
+    D = DIR(br); A = _mk(br); g = []
+    main = str(d.get("main") or d.get("text") or "").strip()
+    if not main:
+        raise SystemExit(f"reelkit: lockup {cid} has no main line")
+    script = str(d.get("script") or "").strip()
+    hi_word = str(d.get("highlight") or "").strip()
+    acc = d.get("accentColor") or A(int(d.get("accent", 0)))
+    at_zero = float(st) <= 0.001
+
+    # The mixed-typeface lockup: heavy bold sans for the base line, and the
+    # accent word set in the script italic face so the two read as one lockup
+    # rather than two stacked headlines. The accent then carries ONE treatment -
+    # a marker block behind it, or a drawn ring around it. Never both, never a
+    # glow: the emphasis is the typeface change plus a single flat colour.
+    style_name = str(d.get("accentStyle") or "marker").lower()
+    if style_name not in ("marker", "circle", "plain"):
+        raise SystemExit(f"reelkit: lockup {cid} has unknown accentStyle "
+                         f"{style_name!r}; have marker, circle, plain")
+    words, parts = main.split(), []
+    accent_i = None
+    for i, w in enumerate(words):
+        is_acc = bool(hi_word) and w.casefold() == hi_word.casefold()
+        if is_acc and accent_i is None:
+            accent_i = i
+        cls = "lw"
+        inner = esc(w)
+        if is_acc:
+            cls += f" lw-accent lw-{style_name}"
+            if style_name == "circle":
+                # The ring is stretched onto the word's own box by the CSS, so
+                # it encircles the accent without anything being measured.
+                ring, length = _marks.mark_svg(f"{cid}-lring", "circle-scribble",
+                                               f"{cid}:lockup", {"loops": 1},
+                                               color=acc, width=26)
+                inner = (f'<span class="lwt">{esc(w)}</span>'
+                         f'<svg class="lwring" viewBox="0 0 {_marks.VIEW} {_marks.VIEW}" '
+                         f'preserveAspectRatio="none" aria-hidden="true">{ring}</svg>')
+                g.append(an.draw(S(cid, f"{cid}-lring"),
+                                 st + float(d.get("accentAt", 0.42)), 0.46, length))
+            else:
+                inner = f'<span class="lwt">{esc(w)}</span>'
+        style = f' style="--lhi:{acc}"' if is_acc else ""
+        parts.append(f'<span class="{cls}" id="{cid}-lw{i}"{style}>{inner}</span>')
+
+    body = (f'<div class="lockup" dir="{D}">'
+            f'<div class="lockmain" id="{cid}-lmain">{" ".join(parts)}</div>'
+            + (f'<div class="lockscript" id="{cid}-lscript">{esc(script)}</div>' if script else "")
+            + "</div>")
+
+    step = float(d.get("wordStep", 0.085))
+    for i, _w in enumerate(words):
+        sel = S(cid, f"{cid}-lw{i}")
+        if i == 0 and at_zero:
+            # Present on frame 0. Everything after it cascades.
+            g.append(f"tl.set({sel},{{opacity:1,y:0}},{an.q(st)});")
+        else:
+            g.append(an.slide(sel, st + (0.10 if not at_zero else 0.0) + i * step, 0.30, dy=16))
+    if script:
+        g.append(an.fade(S(cid, f"{cid}-lscript"),
+                         st + (0.10 if not at_zero else 0.0) + len(words) * step + 0.06, 0.34))
+    return body, g
+
+
 def k_doodle(cid, d, br, an, st, en):
     D = DIR(br)
     """Escape hatch: the agent supplies raw inline SVG plus a list of
@@ -749,5 +826,5 @@ KINDS = {
     "hero": k_hero, "notification": k_notification, "chat": k_chat, "code": k_code,
     "diff": k_diff, "checklist": k_checklist, "donut": k_donut, "bars": k_bars,
     "pipeline": k_pipeline, "contrast": k_contrast, "chips": k_chips, "stat": k_stat,
-    "follow": k_follow, "doodle": k_doodle, "image": k_image, "canvas": k_canvas,
+    "follow": k_follow, "doodle": k_doodle, "lockup": k_lockup, "image": k_image, "canvas": k_canvas,
 }
