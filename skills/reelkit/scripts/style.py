@@ -44,6 +44,9 @@ SCHEMA = {
     # is not, and is deliberately absent - losing a cue is a defect, never a
     # profile setting.
     "audio": {"voice", "duck"},
+    # Slice 3. How many marks a moment may carry and how long one draws for.
+    # WHICH mark and where it points is the plan's business, not the profile's.
+    "doodle": {"maxMarks", "drawSeconds", "severity"},
 }
 VOICE_KEYS = {"enabled", "highpassHz", "compressor", "eq", "limiter"}
 DUCK_KEYS = {"enabled", "threshold", "ratio", "attackMs", "releaseMs"}
@@ -99,6 +102,9 @@ def validate(prof, name):
                  f"(allowed: {', '.join(sorted(allowed))})")
     _validate_motion(prof.get("motion") or {}, name)
     _validate_audio(prof.get("audio") or {}, name)
+    dsev = (prof.get("doodle") or {}).get("severity")
+    if dsev is not None and dsev not in SEVERITIES:
+        _die(f"profile {name!r}: doodle.severity must be one of {', '.join(sorted(SEVERITIES))}")
     sev = (prof.get("pacing") or {}).get("severity")
     if sev is not None and sev not in SEVERITIES:
         _die(f"profile {name!r}: pacing.severity must be one of {', '.join(sorted(SEVERITIES))}")
@@ -238,6 +244,26 @@ def motion_for(resolved, kind):
     out = copy.deepcopy(m.get("defaults") or {})
     for prim, spec in ((m.get("kinds") or {}).get(kind) or {}).items():
         out[prim] = _merge(out.get(prim) or {}, spec)
+    return out
+
+
+def doodle_findings(resolved, plan):
+    """Mark budget. The reference hand puts one or two marks on a moment; a
+    third reads as clutter rather than emphasis, so the cap is enforced at the
+    profile's severity like the cadence is."""
+    cfg = resolved.get("doodle") or {}
+    sev = cfg.get("severity", "off")
+    cap = cfg.get("maxMarks")
+    if sev == "off" or cap is None:
+        return []
+    level = "ERROR" if sev == "error" else "WARN"
+    out = []
+    for b in plan.get("beats", []):
+        n = len((b.get("data") or {}).get("marks") or [])
+        if n > cap:
+            out.append((level, b["id"],
+                        f"{n} hand-drawn marks on one beat; the {resolved['name']} profile "
+                        f"allows {cap}. Past that they read as clutter rather than emphasis."))
     return out
 
 

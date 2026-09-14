@@ -33,5 +33,10 @@
     "duck": {
       "enabled": false
     }
+  },
+  "doodle": {
+    "maxMarks": 2,
+    "drawSeconds": 0.4,
+    "severity": "off"
   }
 }
