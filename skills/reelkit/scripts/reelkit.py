@@ -148,13 +148,19 @@ def theme_css(br, capcfg=None, titlecfg=None):
 html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:{br['bg']};
 font-family:'{br['font']}','{br['latinFont']}',ui-sans-serif,system-ui,sans-serif;}}
 #stage{{position:relative;width:100%;height:100%;overflow:hidden;}}
+/* Three layers, and the order is the whole of how pip works. The artifact a
+   pip beat fills the frame with renders UNDER the speaker's inset, so the face
+   is on top of it and the face-zone law is satisfied by construction rather
+   than by keeping the artifact away from where the head used to be. */
 #pip-frame{{position:absolute;left:0;top:0;width:100%;height:100%;
- transform-origin:0 0;overflow:hidden;will-change:transform;}}
+ transform-origin:0 0;overflow:hidden;will-change:transform;z-index:5;}}
 .video-wrapper{{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;}}
 .video-wrapper video{{width:100%;height:100%;object-fit:cover;}}
-.bottomveil{{position:absolute;left:0;right:0;bottom:0;height:430px;
+.bottomveil{{position:absolute;left:0;right:0;bottom:0;height:430px;z-index:6;
 background:linear-gradient(180deg,rgba(5,6,10,0) 0%,rgba(5,6,10,.30) 45%,rgba(5,6,10,.58) 100%);}}
-.card-host{{position:absolute;pointer-events:none;overflow:hidden;}}
+.card-host{{position:absolute;pointer-events:none;overflow:hidden;z-index:10;}}
+/* The pip artifact is the exception: below the inset, never over it. */
+.card-host.pip-art{{z-index:1;}}
 .card-host .card{{position:relative;width:100%;height:100%;overflow:hidden;}}
 .card-host .char{{display:inline-block;visibility:visible;}}
 .cap-host{{overflow:visible;}}
@@ -232,7 +238,10 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False, kin
     # The end card owns the whole frame like `full` B-roll does: it is the last
     # thing on screen and nothing plays behind it, so a top inset would leave a
     # band of footage above the gradient and push the card off the canvas.
-    owns_frame = mode == "full" or kind == "outro"
+    # `pip` owns the frame for the same reason `full` does - the artifact fills
+    # it - with one difference that matters: the speaker does not leave, he
+    # insets. So pip gets the full-frame layout AND keeps a live face.
+    owns_frame = mode in ("full", "pip") or kind == "outro"
     pad = (f"{int(top)}px 0 0 0" if top is not None and not owns_frame
            else ("150px 0 0 0" if mode == "stage"
                  else ("0px 0 0 0" if owns_frame else "120px 0 0 0")))
@@ -299,7 +308,7 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False, kin
  direction:{D};color:{br.get('canvasMuted', '#858A93')}; }}""" if cimg else ""
     return f"""
 {P} .root {{ width:100%;height:100%;position:relative;display:flex;
- align-items:{'center' if mode == 'full' else 'flex-start'};
+ align-items:{'center' if owns_frame else 'flex-start'};
  justify-content:center;padding:{pad};font-family:'{br['font']}','{br['latinFont']}',sans-serif;
  color:{br['text']};background:transparent; }}
 /* No global scrim anywhere. Dimming the frame to lift a card also dims the
@@ -581,6 +590,35 @@ def ensure_mandatory_hook(project, plan, words, _style=None, dur=None):
 
 
 # ------------------------------------------------------------------ build
+def frame_overflow_attr(framing):
+    """`data-layout-allow-overflow` when the framing crops on purpose, else "".
+
+    A punch-in scales the footage PAST the frame - that is what a punch-in is -
+    and #pip-frame crops it back, which is what that wrapper is for. The layout
+    checker cannot tell an intentional crop from a layout mistake, so it is
+    told: this attribute is the escape hatch the checker's own fixHint names.
+
+    It is emitted only when the composition really does scale past 1.0. A reel
+    with no punch keeps the checker live on this element instead of carrying a
+    standing exemption it does not need - an always-on attribute would silence
+    the next overflow here too, and that one might be real.
+
+    Pre-#18 this never reported at all: #video-wrap hung directly off the
+    composition root, which the checker does not treat as a clipping container.
+    The wrapper did not create the crop, it made an old one visible.
+    """
+    fr = framing or {}
+    try:
+        base = float(fr.get("scale", 1.0))
+        scales = [base] + [base * float(p[k]) for p in (fr.get("punches") or [])
+                           for k in ("from", "to") if p.get(k) is not None]
+    except Exception:
+        # Any shape we cannot measure, not just the two we thought of first: a
+        # framing block this cannot read is one whose crop we cannot rule out.
+        return " data-layout-allow-overflow"
+    return " data-layout-allow-overflow" if max(scales) > 1.0 else ""
+
+
 def caption_band(project, plan, br, W, H, beats):
     """Where the caption band sits, measured against the speaker rather than
     assumed. Returns (top, height).
@@ -615,14 +653,25 @@ def caption_band(project, plan, br, W, H, beats):
     # The lowest the head reaches anywhere a card is on screen. The gate errors
     # on the first beat whose head the band touches, so the strictest beat is
     # the one that decides the band.
-    rects = [r for r in (head_rect(f) for f in faces.values()) if r]
+    # A pip beat's head is in a top corner, not where the source footage puts
+    # it, so its full-frame position must not drag the band down for the whole
+    # reel. Mapped through the inset, as the gate measures it.
+    pipped = {b["id"]: b.get("pip") for b in beats if b.get("mode") == "pip"}
+    rects = []
+    for bid, f in faces.items():
+        r = head_rect(f)
+        if r and bid in pipped:
+            r = pipmod.head_zone(r, W, H, pipped[bid])
+        if r:
+            rects.append(r)
     if not rects:
         return top, hgt
     lowest = max(r[1] + r[3] for r in rects)
     # The mouth check uses the median face and asks for 40px; clearing the jaw
     # of the worst beat clears it, but ask for both so neither gate is a
     # surprise on footage where the head barely moves.
-    med = [statistics.median([f[i] for f in faces.values()]) for i in range(4)]
+    live = [f for bid, f in faces.items() if bid not in pipped] or list(faces.values())
+    med = [statistics.median([f[i] for f in live]) for i in range(4)]
     need = max(lowest, med[1] + med[3] * 0.75 + 40)
     want = int(need) + HEAD_MARGIN
     if want > top:
@@ -727,6 +776,16 @@ def build(project, _layouts=None, _pass=1):
     fr = plan.get("framing", {})
     base = float(fr.get("scale", 1.0))
     origin = fr.get("origin", "50% 30%").replace("%", "\\u0025")
+    # A punch-in scales the footage PAST the frame on purpose - that is what a
+    # punch-in is - and #pip-frame crops it back, which is what that wrapper is
+    # for. The layout checker cannot tell an intentional crop from a layout
+    # mistake, so it is told: `data-layout-allow-overflow` is the escape hatch
+    # the checker's own fixHint names. Emitted only when the composition really
+    # does scale past 1.0, so a reel with no punch keeps the checker live on
+    # this element rather than carrying a standing exemption it does not need.
+    # (Pre-#18 this never reported: #video-wrap hung directly off the
+    # composition root, which the checker does not treat as a clipping
+    # container. The wrapper made a crop that was always there reportable.)
     tls.append(f"tl.set('#video-wrap',{{transformOrigin:'{origin}',scale:{base}}},0);")
     for p in fr.get("punches", []):
         tls.append(f"tl.fromTo('#video-wrap',{{scale:{round(base*float(p['from']),4)}}},"
@@ -757,6 +816,19 @@ def build(project, _layouts=None, _pass=1):
                 "top", br["captionTop"])), plan.get("captions", {}).get("enabled", True))
             if bad:
                 die(f"beat {b['id']}: " + "\n  ".join(m for _l, _i, m in bad))
+            src = (b.get("broll") or {}).get("src", "")
+            if src:
+                # Same path rules as `full`, one difference: a still is allowed,
+                # because the speaker stays on screen in the inset. What is not
+                # allowed is naming a file that is not there - that renders a
+                # black frame behind a floating head and says nothing.
+                if src.startswith(("/", "http:", "https:")) or ".." in src.split("/"):
+                    die(f"beat {b['id']}: broll.src must be a project-relative file under public/")
+                if not src.lower().endswith((".mp4", ".webm", ".png", ".jpg", ".jpeg", ".webp")):
+                    die(f"beat {b['id']}: broll.src must be video (mp4/webm) or a still "
+                        f"(png/jpg/webp), got {src.rsplit('.', 1)[-1]!r}")
+                if not os.path.exists(os.path.join(pub, src)):
+                    die(f"beat {b['id']}: B-roll file public/{src} is missing")
         if mode == "full":
             if b.get("image"):
                 die(f"beat {b['id']}: full-screen still images are not allowed; "
@@ -879,11 +951,18 @@ def build(project, _layouts=None, _pass=1):
             if not has_img:
                 missing.append(cid)
 
-        # B-roll: in `full` mode a present image IS the frame, edge to edge, so
+        # B-roll: in `full` and `pip` the picture IS the frame, edge to edge, so
         # it must not also be drawn as a framed card floating on top of itself.
-        broll_img = mode == "full" and has_img
+        # The picture can arrive two ways - the beat's own image block, or the
+        # broll ground - and either way an `image` kind has nothing left to draw
+        # but its caption. Without the second case a pip beat whose artifact is
+        # its broll rendered the loud IMAGE SLOT placeholder on top of the very
+        # picture it was asking for.
+        broll_img = mode in ("full", "pip") and (has_img or bool(broll.get("src")))
         if broll_img:
-            cap = img.get("caption") or beat.get("data", {}).get("caption")
+            # `img` is None when the picture came from the broll ground rather
+            # than the beat's own image block.
+            cap = (img or {}).get("caption") or beat.get("data", {}).get("caption")
             if kind == "image":
                 body = (f'<div id="{cid}-bcap" class="brollcap">{esc(cap)}</div>'
                         if cap else "")
@@ -936,20 +1015,30 @@ def build(project, _layouts=None, _pass=1):
             if pill:
                 g.append(an.pop(f"'.card[data-card-id=\"{cid}\"] #{cid}-pill'", st + 0.18, 0.28, 0.75))
             ground = ""
-        elif mode == "full":
+        elif mode in ("full", "pip") and broll.get("src"):
             # `full` is B-roll: the frame is REPLACED, not tinted. Either the
             # beat's own image fills it edge to edge or the brand ground does.
             # Nothing translucent, because a half-visible speaker behind a card
             # is the thing this mode exists to stop being.
+            #
+            # `pip` renders the same ground, and this is where broll.src stopped
+            # being a key the gate demanded and the build ignored. A still is
+            # allowed here and banned in `full` for one reason: the speaker is
+            # still on screen in the inset, so a photo cannot turn the reel into
+            # a slideshow - which is the whole editorial case for pip.
             bsrc = esc(broll["src"])
             trim = float(broll.get("trim", 0))
             span = max(0.1, en - st)
-            # HyperFrames owns source seeking. The media is inside a registered
-            # sub-composition, so its local zero is the beat host's `start`.
-            ground = (f'<div class="broll" id="{cid}-broll">'
-                      f'<video id="{cid}-broll-video" src="{bsrc}" muted playsinline preload="auto" '
-                      f'data-start="0" data-duration="{span}" data-media-start="{trim}" '
-                      f'data-track-index="0"></video></div>')
+            if broll["src"].lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                media = f'<img id="{cid}-broll-img" src="{bsrc}" alt="">'
+            else:
+                # HyperFrames owns source seeking. The media is inside a
+                # registered sub-composition, so its local zero is the beat
+                # host's `start`.
+                media = (f'<video id="{cid}-broll-video" src="{bsrc}" muted playsinline '
+                         f'preload="auto" data-start="0" data-duration="{span}" '
+                         f'data-media-start="{trim}" data-track-index="0"></video>')
+            ground = f'<div class="broll" id="{cid}-broll">{media}</div>'
             g.insert(0, an.fade(f"'.card[data-card-id=\"{cid}\"] #{cid}-broll'", st, 0.18))
         else:
             # top / stage: nothing at all over the footage. Separation, where a
@@ -972,7 +1061,7 @@ def build(project, _layouts=None, _pass=1):
             warn.append(f"beat {cid} renders {round(first_at - st, 2)}s before its first animation - "
                         f"it will sit visibly empty")
 
-        hosts.append(f'<div class="card-host clip" id="card-{cid}" data-card-id="{cid}" data-composition-id="{cid}" '
+        hosts.append(f'<div class="card-host clip{" pip-art" if mode == "pip" else ""}" id="card-{cid}" data-card-id="{cid}" data-composition-id="{cid}" '
                      f'data-no-timeline data-start="{st:.4f}" data-duration="{en-st:.4f}" data-track-index="2" '
                      f'style="left:0;top:0;width:{W}px;height:{H}px;visibility:hidden;opacity:0;">\n{frag}\n</div>')
         sel = f"'.card-host[data-card-id=\"{cid}\"]'"
@@ -1107,7 +1196,7 @@ def build(project, _layouts=None, _pass=1):
 <body>
 <div id="stage" data-composition-id="reelkit" data-start="0"
  data-duration="{dur}" data-fps="{fps}" data-width="{W}" data-height="{H}">
-<div id="pip-frame"><div class="video-wrapper" id="video-wrap">
+<div id="pip-frame"><div class="video-wrapper" id="video-wrap"{frame_overflow_attr(fr)}>
 <video id="bg-video" src="input-video.mp4" muted playsinline data-start="0"
  data-duration="{dur}" data-track-index="1"></video></div></div>
 <audio id="source-audio" src="input-video.mp4" data-start="0" data-duration="{dur}"

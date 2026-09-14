@@ -62,9 +62,16 @@ class JustificationIsMandatory(unittest.TestCase):
         b=dict(OK,justification='todo')
         self.assertTrue(any('placeholder' in m for m in self.msgs(b)))
 
-    def test_a_pip_beat_without_broll_blocks(self):
+    def test_a_pip_beat_without_broll_is_allowed_now(self):
+        """broll.src used to be required here and read nowhere - the gate
+        demanded a key the renderer ignored, which is the declared-but-unread
+        key doctrine calls fatal. It is the full-frame ground now, so a beat
+        whose own card IS the artifact does not need one. The justification is
+        what stayed mandatory, because that is the doctrine."""
         b=dict(OK); b.pop('broll')
-        self.assertTrue(any('broll.src' in m for m in self.msgs(b)))
+        self.assertEqual(pipmod.problems(b,W,H,CAP),[])
+        b2=dict(b); b2.pop('justification')
+        self.assertTrue(any('justification' in m for m in self.msgs(b2)))
 
     def test_an_inset_over_the_caption_band_blocks(self):
         b=dict(OK,pip={'corner':'bottom-right'})
