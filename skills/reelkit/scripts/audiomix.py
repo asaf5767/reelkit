@@ -29,17 +29,37 @@ losing a cue is a defect, never a preference.
 No music bed: this processes the speaker's own voice and the bundled CC0 cues,
 and adds no licensed material.
 """
-import os, subprocess
+import os, shutil, subprocess, sys
 from html.parser import HTMLParser
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import loudness  # noqa: E402
 
 SFX_TRACK_MIN = 20          # build puts cue clips on tracks 20+
 RATE = 48000                # one sample rate through the whole graph
-PROOF_WINDOW = 0.45         # shortest span sampled when proving a cue landed
-PROOF_MAX_SPAN = 4.0        # a long cue is proven from its first seconds
+# How far a cue may be lifted to clear the voice. Past this it is fighting a
+# loud word rather than punctuating a beat, and the word is the reel - the gate
+# reports such a cue instead of shouting over the sentence.
+MAX_LIFT_DB = 24.0
+# A filter gain, not a fader: above 1.0 is normal and necessary here, because
+# the cue assets are quiet next to a compressed voice - the first cut of this
+# loop capped at 1.0 and stalled 9 dB short of the bar with every cue clamped.
+# The master limiter below is what keeps the sum honest.
+MAX_VOLUME = 8.0
+MIN_VOLUME = 0.02
+MASTER_LIMIT = 0.95
+# Where a cue sits relative to the voice across the reel before any per-cue
+# correction. Under the voice, because the word is the reel - but only just,
+# because a cue 20 dB under it is decoration nobody hears.
+CUE_UNDER_VOICE_DB = -4.0
+# ...but never below this in absolute terms. Programme-relative alone still
+# silences cues on a quiet source: a voice at -43 dB puts the base at -47, which
+# is nothing. A reel whose speaker was recorded quietly still needs cues you can
+# hear, and an SFX at -30 dBFS is modest, not loud.
+CUE_FLOOR_DBFS = -30.0
 # Measured on the sample: the codec-noise floor between the mixed and source
 # files sits at -63..-67 dBFS and a real cue reads -17..-22, so -45 separates
 # them with margin on both sides.
-PROOF_FLOOR_DB = -45.0      # below this the mix added nothing audible
 
 
 class _Cues(HTMLParser):
@@ -144,6 +164,7 @@ def filtergraph(cue_list, voice, duck, speech=1, cue_base=2):
         labels.append(f"[c{n}]")
     parts.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0:dropout_transition=0[sfxraw]")
 
+    tail = f",alimiter=limit={MASTER_LIMIT}" if cue_list else ""
     if duck and duck.get("enabled"):
         # The cue bus ducks under the voice, never the other way round: a cue
         # that competes with a word costs the word, and the word is the reel.
@@ -151,9 +172,11 @@ def filtergraph(cue_list, voice, duck, speech=1, cue_base=2):
         parts.append(f"[sfxraw][spk]sidechaincompress=threshold={duck.get('threshold', 0.05)}:"
                      f"ratio={duck.get('ratio', 8)}:attack={duck.get('attackMs', 5)}:"
                      f"release={duck.get('releaseMs', 250)}[sfx]")
-        parts.append("[sp1][sfx]amix=inputs=2:normalize=0:dropout_transition=0[mix]")
+        parts.append("[sp1][sfx]amix=inputs=2:normalize=0:dropout_transition=0"
+                     + tail + "[mix]")
     else:
-        parts.append("[sp][sfxraw]amix=inputs=2:normalize=0:dropout_transition=0[mix]")
+        parts.append("[sp][sfxraw]amix=inputs=2:normalize=0:dropout_transition=0"
+                     + tail + "[mix]")
     return ";".join(parts), "[mix]"
 
 
@@ -165,90 +188,201 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
     mix, so the stage is always safe to call.
     """
     cue_list = cues(project)
-    fc, label = filtergraph(cue_list, voice, duck, speech=1, cue_base=2)
-    if fc is None:
+    if not cue_list and not voice_filters(voice):
         cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_in, "-i", source_audio,
                "-map", "0:v:0", "-map", "1:a:0", "-dn", "-sn", "-write_tmcd", "0",
                "-map_chapters", "-1",
                "-c", "copy", "-shortest", out]
         log("reelkit audio: no cues and no voice chain - straight mux")
-    else:
-        cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_in, "-i", source_audio]
-        for c in cue_list:
-            cmd += ["-i", c["path"]]
-        cmd += ["-filter_complex", fc, "-map", "0:v:0", "-map", label,
-                "-dn", "-sn", "-write_tmcd", "0", "-map_chapters", "-1",
-                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                "-shortest", out]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise SystemExit(f"reelkit audio: mix failed\n{r.stderr[-1200:]}")
+        return out
+
+    # The reference every level here is judged against: the delivered voice,
+    # same chain, cues removed. Built once and reused by calibration and by the
+    # gate, so the two can never disagree about what the voice was doing.
+    ref = os.path.join(os.path.dirname(os.path.abspath(out)) or ".",
+                       ".reelkit-voice-only.wav")
+    voice_only(source_audio, ref, voice, duck)
+    try:
+        cue_list = calibrate(cue_list, ref, log=log) if cue_list else cue_list
+        # Calibration is open-loop: it sets a gain from the cue asset and the
+        # voice under it, and then the duck, the limiter and the other cues all
+        # have their say. So the loop closes here - mix, measure, lift whatever
+        # came up short, mix again. One correction is almost always enough; the
+        # cap stops a cue that cannot win from being chased forever.
+        rows = []
+        for attempt in range(4):
+            _render(video_in, source_audio, cue_list, out, voice, duck, log,
+                    quiet=attempt > 0)
+            rows = measure(out, ref, cue_list)
+            short = [(c, r) for c, r in zip(cue_list, rows)
+                     if r["headroomDb"] < loudness.AUDIBLE_TARGET - 1.0]
+            if not short or attempt == 3:
+                break
+            for c, r in short:
+                lift = min(loudness.AUDIBLE_TARGET - r["headroomDb"], MAX_LIFT_DB)
+                # A cue already at the ceiling cannot be lifted; leave it for the
+                # gate to report rather than looping on a number that cannot move.
+                c["volume"] = round(min(MAX_VOLUME, c["volume"] * 10 ** (lift / 20.0)), 4)
+            log(f"reelkit audio: lifting {len(short)} cue(s) and re-mixing")
+        return _finish(out, ref, cue_list, rows, log)
+    finally:
+        if os.path.exists(ref):
+            os.remove(ref)
+
+
+def _render(video_in, source_audio, cue_list, out, voice, duck, log, quiet=False):
+    fc, label = filtergraph(cue_list, voice, duck, speech=1, cue_base=2)
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_in, "-i", source_audio]
+    for c in cue_list:
+        cmd += ["-i", c["path"]]
+    cmd += ["-filter_complex", fc, "-map", "0:v:0", "-map", label,
+            "-dn", "-sn", "-write_tmcd", "0", "-map_chapters", "-1",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-shortest", out]
+    if not quiet:
         log(f"reelkit audio: {len(cue_list)} cue(s)"
             + (", voice chain" if voice_filters(voice) else "")
             + (", ducked" if (duck or {}).get("enabled") else ""))
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit(f"reelkit audio: mix failed\n{r.stderr[-1200:]}")
-    prove(out, source_audio, cue_list, log=log)
+
+
+def _finish(out, ref, cue_list, rows, log):
+    prove(out, ref, cue_list, log=log, rows=rows)
     return out
 
 
-def added_db(mixed, source, at, span=PROOF_WINDOW):
-    """Peak of (mixed - source) across a cue's span: what the mix put there.
+def voice_only(source_audio, out, voice=None, duck=None):
+    """The delivered voice with the cues removed, through the SAME chain.
 
-    Two things this has to get right, both learned by getting them wrong:
-
-    The seek must be sample accurate. `-ss` before `-i` is approximate, and a
-    few milliseconds of misalignment stops the two signals cancelling - the
-    difference then reads as loud as the source everywhere, which looks like
-    every cue passing when nothing is being measured at all.
-
-    The window must cover the cue, not its first instant. A riser opens near
-    silence and builds; sampling 0.45s at its onset reported it missing when it
-    was correctly placed and audible a second later.
+    This is the reference every measurement here is taken against, and getting
+    it wrong is how the old gate passed a mix nobody could hear a cue in. The
+    obvious reference - the raw source audio - is not the right one: the voice
+    chain compresses, EQs and adds makeup gain, so a mix compared against the
+    raw source reads several dB of "extra" at every timestamp that is the voice
+    chain, not the cue. Measured on wareel, that error flattered every cue by
+    3-6 dB and turned an inaudible mix into a passing one.
     """
-    span = max(PROOF_WINDOW, min(float(span or 0) or PROOF_WINDOW, PROOF_MAX_SPAN))
-    trim = f"atrim={at}:{at + span},asetpts=PTS-STARTPTS"
-    fmt = f"aformat=sample_fmts=fltp:sample_rates={RATE}:channel_layouts=mono"
-    r = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-i", mixed, "-i", source, "-filter_complex",
-         f"[0:a]{fmt},{trim}[a];[1:a]{fmt},{trim},volume=-1.0[b];"
-         f"[a][b]amix=inputs=2:normalize=0:dropout_transition=0,volumedetect",
-         "-f", "null", "-"], capture_output=True, text=True)
-    for line in r.stderr.splitlines():
-        if "max_volume" in line:
-            try:
-                return float(line.split(":")[-1].replace("dB", "").strip())
-            except ValueError:
-                return None
-    return None
+    fc, label = filtergraph([], voice, duck, speech=0, cue_base=1)
+    if fc is None:
+        shutil.copyfile(source_audio, out)
+        return out
+    r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", source_audio,
+                        "-filter_complex", fc, "-map", label,
+                        "-map_chapters", "-1",
+                        "-c:a", "pcm_s16le", out], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise SystemExit(f"reelkit audio: could not build the voice-only "
+                         f"reference\n{r.stderr[-800:]}")
+    return out
 
 
-def prove(out, source_audio, cue_list, log=print):
-    """Measure the delivered file at every cue and refuse a silent result.
+def moment(cue):
+    """When to measure a cue: its own loudest instant, not its nominal start.
 
-    A mix that runs cleanly and places nothing is the failure mode this whole
-    stage exists to fix, and it is inaudible to every other gate: the file
-    decodes, the levels look ordinary, and the cues are simply not there. The
-    command's exit code cannot see it, so the only honest check is to listen to
-    the output and compare it against the source at the same instants.
+    A riser opens near silence and builds for seconds. Measuring it where it
+    starts reads the silence in front of it and calls a correctly placed cue
+    missing - a measurement bug that cost a review round once already.
+    """
+    try:
+        return round(float(cue["start"]) + loudness.peak_offset(cue["path"]), 3)
+    except Exception:
+        return float(cue["start"])
+
+
+def calibrate(cue_list, ref, log=print):
+    """Set each cue's gain from the voice it has to share a reel with.
+
+    The old calibration normalised every cue asset to a fixed -11 dBFS and
+    scaled it by a taste number - about -19 dB by the time it reached the graph.
+    That is an ABSOLUTE target, and the thing a cue competes with is not
+    absolute: when the voice chain moved the delivered mix from -23.2 to -18.4
+    LUFS, every cue lost 5 dB of presence without a single number changing.
+    Measured on a real reel, the authored 0.11 should have been about 1.0 - the
+    cues were entering roughly 20 dB below where they needed to be, which is
+    why the answer to "can you hear the SFX" was "I don't hear any. Anything."
+
+    The base level is PROGRAM-relative: the cue sits a fixed distance under the
+    voice's own level across the reel. Deliberately not the instantaneous floor
+    - a first cut of this set each cue `target` dB above the voice AT that
+    instant, which silently turned cues DOWN in quiet passages, where the floor
+    is near silence and 10 dB above near silence is still near silence. A cue is
+    never attenuated to meet a bar; the bar is a floor, not a setpoint.
+
+    Then the loop in `mix` lifts whatever still fails the perceptual gate. Base
+    plus correction, rather than one clever formula, because the duck, the
+    limiter and the other cues all have a say and none of them is predictable
+    from the assets alone.
+    """
+    program = loudness.level_db(ref)
+    out = []
+    for c in cue_list:
+        off = loudness.peak_offset(c["path"])
+        at = round(float(c["start"]) + off, 3)
+        asset = loudness.level_db(c["path"], off, loudness.WINDOW)
+        gain = max(program + CUE_UNDER_VOICE_DB, CUE_FLOOR_DBFS) - asset
+        out.append(dict(c, at=at, authoredVolume=c.get("volume"),
+                        volume=round(max(MIN_VOLUME, min(MAX_VOLUME,
+                                                         10 ** (gain / 20.0))), 4)))
+        log(f"reelkit audio: {c['src']} at {at:.2f}s -> {out[-1]['volume']:.3f} "
+            f"(asset {asset:.1f} dB, voice programme {program:.1f} dB)")
+    return out
+
+
+def measure(out, ref, cue_list):
+    """Per-cue headroom over the voice, as rows. Raises only when a measurement
+    is impossible - an unmeasured cue is never reported as a passing one."""
+    rows = []
+    for c in cue_list:
+        at = c.get("at", moment(c))
+        try:
+            d, band, mixed_db, voice_db = loudness.headroom(out, ref, at)
+        except Exception as e:
+            raise SystemExit(
+                f"reelkit audio: could not measure the mix at {at:.2f}s "
+                f"({c['src']}): {type(e).__name__} - refusing to ship audio "
+                "nobody has checked")
+        rows.append({"src": c["src"], "at": at, "headroomDb": float(d),
+                     "band": list(band), "mixedDb": float(mixed_db),
+                     "voiceDb": float(voice_db)})
+    return rows
+
+
+def prove(out, ref, cue_list, log=print, rows=None):
+    """Measure the delivered file at every cue and refuse what cannot be heard.
+
+    Two failures this has to separate, because they need different answers and
+    the previous gate could see neither. A cue that is not in the file at all -
+    the drop this stage exists to prevent. And a cue that is in the file and
+    inaudible, which is what shipped: the owner's verdict on a reel this gate
+    had passed was "I don't hear any SFX. Anything."
 
     Fail-closed in the direction that matters: a cue that cannot be measured
     blocks, because "I could not tell" and "it is fine" are not the same answer.
     """
     if not cue_list:
-        return
+        return []
+    rows = measure(out, ref, cue_list) if rows is None else rows
     quiet = []
-    for c in cue_list:
-        got = added_db(out, source_audio, c["start"], c.get("duration"))
-        if got is None:
-            raise SystemExit(
-                f"reelkit audio: could not measure the mix at {c['start']:.2f}s "
-                f"({c['src']}) - refusing to ship audio nobody has checked")
-        if got < PROOF_FLOOR_DB:
-            quiet.append((c, got))
+    for c, r in zip(cue_list, rows):
+        d, band = r["headroomDb"], tuple(r["band"])
+        if d < loudness.AUDIBLE_MIN:
+            quiet.append((c, d, band))
     if quiet:
-        detail = "; ".join(f"{c['src']} at {c['start']:.2f}s (added {got:.1f} dBFS)"
-                           for c, got in quiet)
+        detail = "; ".join(
+            f"{c['src']} at {c.get('at', c['start']):.2f}s rises {d:+.1f} dB over the "
+            f"voice in {band[0]}-{band[1]}Hz"
+            for c, d, band in quiet)
         raise SystemExit(
             f"reelkit audio: {len(quiet)} of {len(cue_list)} cue(s) are not "
-            f"audible in the mixed output - {detail}. The mix ran and placed "
-            "nothing, which is exactly the drop this stage exists to prevent.")
-    log(f"reelkit audio: {len(cue_list)} cue(s) proven audible in the output")
+            f"audible in the mixed output (bar is +{loudness.AUDIBLE_MIN:g} dB "
+            f"over the voice in the cue's own band) - {detail}. A cue a human "
+            "cannot hear is a failed export.")
+    worst = min(r["headroomDb"] for r in rows)
+    log(f"reelkit audio: {len(cue_list)} cue(s) audible, worst +{worst:.1f} dB "
+        f"over the voice in its own band")
+    return rows

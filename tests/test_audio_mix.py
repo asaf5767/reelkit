@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT/'skills/reelkit/scripts'))
-import audiomix,style  # noqa: E402
+import audiomix,loudness,style  # noqa: E402
 
 AUDIO=('<audio id="sfx-000-pop" class="clip" src="sfx/pop.mp3" data-start="0.1333" '
        'data-duration="0.7200" data-track-index="20" data-volume="0.145">')
@@ -173,8 +173,16 @@ class RealMix(unittest.TestCase):
             out=str(Path(d)/'out.mp4')
             audiomix.mix(d,str(Path(d)/'video.mp4'),str(pub/'input-video.mp4'),out,log=lambda *a: None)
             self.assertTrue(os.path.exists(out))
-            self.assertGreater(peak(out,1.5,0.25),peak(out,0.2,0.25)+10,
-                               'the cue is not audible in the mixed output')
+            # The contract is the perceptual one: the cue rises over the voice
+            # beneath it, measured against the same chain with the cue removed.
+            # `mix` refuses to return at all if it does not, so reaching here is
+            # already the assertion - but measure it again, because a gate that
+            # only tests itself proves nothing.
+            ref=str(Path(d)/'ref.wav')
+            audiomix.voice_only(str(pub/'input-video.mp4'),ref)
+            d_db,band,_m,_v=loudness.headroom(out,ref,1.5)
+            self.assertGreaterEqual(d_db,loudness.AUDIBLE_MIN,
+                                    f'cue rises only {d_db} dB over the voice in {band}')
 
 
 def shutil_which(x):
@@ -216,46 +224,66 @@ class ProvesItsOwnWork(unittest.TestCase):
         src=(ROOT/'skills/reelkit/scripts/audiomix.py').read_text()
         self.assertEqual(src.count('"-dn", "-sn"'),2,'both mux paths must drop data streams')
 
-    def test_the_proof_seeks_accurately(self):
-        """`-ss` before `-i` is approximate; a few ms of misalignment stops the
-        difference cancelling and every cue then reads as present."""
-        src=(ROOT/'skills/reelkit/scripts/audiomix.py').read_text()
-        i=src.index('def added_db(')
-        body=src[i:src.index('def prove(')]
+    def test_the_measurement_seeks_accurately(self):
+        """`-ss` before `-i` is approximate; a few ms of misalignment moves a
+        transient out of the window entirely."""
+        src=(ROOT/'skills/reelkit/scripts/loudness.py').read_text()
+        body=src[src.index('def _decode('):src.index('def band_db(')]
         self.assertIn('atrim=',body)
-        self.assertNotIn('"-ss"',body,'approximate seek cannot measure a difference')
+        self.assertNotIn('"-ss"',body,'approximate seek cannot find a transient')
 
-    def test_the_proof_window_covers_a_long_cue(self):
-        """A riser opens near silence and builds; 0.45s at its onset reported it
-        missing when it was correctly placed."""
-        self.assertGreater(audiomix.PROOF_MAX_SPAN,audiomix.PROOF_WINDOW)
+    def test_a_cue_is_measured_at_its_own_loudest_moment(self):
+        """A riser opens near silence and builds; sampling its onset reported it
+        missing when it was correctly placed and audible a second later."""
+        cue={'src':'riser','start':10.0,
+             'path':str(ROOT/'skills/reelkit/assets/sfx/riser.mp3')}
+        self.assertGreater(audiomix.moment(cue),10.0,
+                           'the riser peaks after its start, and is measured there')
+        pop={'src':'pop','start':10.0,
+             'path':str(ROOT/'skills/reelkit/assets/sfx/pop.mp3')}
+        self.assertAlmostEqual(audiomix.moment(pop),10.0,delta=0.2,
+                               msg='a transient peaks where it starts')
 
-    def test_the_floor_sits_between_the_noise_and_a_real_cue(self):
-        """Measured on the sample: noise floor -63..-67 dBFS, real cues -17..-22."""
-        self.assertLess(audiomix.PROOF_FLOOR_DB,-30)
-        self.assertGreater(audiomix.PROOF_FLOOR_DB,-60)
+    def test_the_bar_is_relative_and_sits_where_masking_does(self):
+        """Absolute was the defect: the delivered mix moved -23.2 -> -18.4 LUFS
+        between two cuts and every cue lost 5 dB without a number changing."""
+        self.assertLess(loudness.AUDIBLE_MIN,loudness.AUDIBLE_TARGET,
+                        'the mix aims above the bar so a cue can drift and still pass')
+        self.assertGreaterEqual(loudness.AUDIBLE_MIN,3.0,'below 3 dB is not heard')
+        self.assertLessEqual(loudness.AUDIBLE_MIN,8.0,'above 8 dB refuses honest mixes')
+
+    def _rows(self,d):
+        return [{'src':'x','at':1.0,'headroomDb':d,'band':[1000,2000],
+                 'mixedDb':-20.0,'voiceDb':-20.0-d}]
 
     def test_an_unmeasurable_cue_blocks_rather_than_passes(self):
-        real=audiomix.added_db
-        audiomix.added_db=lambda *a,**k: None
-        self.addCleanup(setattr,audiomix,'added_db',real)
+        real=loudness.headroom
+        loudness.headroom=lambda *a,**k: (_ for _ in ()).throw(OSError('no decoder'))
+        self.addCleanup(setattr,loudness,'headroom',real)
         with self.assertRaises(SystemExit) as e:
-            audiomix.prove('o','s',[{'src':'x','start':1.0,'duration':.5}],log=lambda *a: None)
+            audiomix.prove('o','s',[{'src':'x','start':1.0,'path':'p'}],log=lambda *a: None)
         self.assertIn('could not measure',str(e.exception))
 
-    def test_a_silent_cue_blocks(self):
-        real=audiomix.added_db
-        audiomix.added_db=lambda *a,**k: -70.0
-        self.addCleanup(setattr,audiomix,'added_db',real)
+    def test_a_cue_nobody_can_hear_blocks(self):
         with self.assertRaises(SystemExit) as e:
-            audiomix.prove('o','s',[{'src':'x','start':1.0,'duration':.5}],log=lambda *a: None)
-        self.assertIn('not audible',str(e.exception))
+            audiomix.prove('o','s',[{'src':'x','start':1.0}],log=lambda *a: None,
+                           rows=self._rows(0.4))
+        msg=str(e.exception)
+        self.assertIn('not audible',msg)
+        self.assertIn('+0.4 dB',msg,'the message must say how far short it fell')
+        self.assertIn('1000-2000Hz',msg,'and in which band')
+
+    def test_present_but_masked_is_a_failure_now(self):
+        """The old gate asked whether the samples changed. Measured on a real
+        reel it answered "6 cues proven audible" about a mix whose cues rose
+        0.0-1.1 dB over the voice - which is the mix the owner could not hear."""
+        with self.assertRaises(SystemExit):
+            audiomix.prove('o','s',[{'src':'x','start':1.0}],log=lambda *a: None,
+                           rows=self._rows(1.1))
 
     def test_an_audible_cue_passes(self):
-        real=audiomix.added_db
-        audiomix.added_db=lambda *a,**k: -18.0
-        self.addCleanup(setattr,audiomix,'added_db',real)
-        audiomix.prove('o','s',[{'src':'x','start':1.0,'duration':.5}],log=lambda *a: None)
+        audiomix.prove('o','s',[{'src':'x','start':1.0}],log=lambda *a: None,
+                       rows=self._rows(9.0))
 
     def test_no_cues_means_nothing_to_prove(self):
         audiomix.prove('o','s',[],log=lambda *a: None)

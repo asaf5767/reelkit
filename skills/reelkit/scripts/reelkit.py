@@ -21,7 +21,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    canvas_image_box, wants_plate, head_rect, head_clear_y,
                    HEAD_MARGIN)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
-import audiomix, captionfx, lottiefx, pip as pipmod, progress as pgmod, style  # noqa: E402
+import audiomix, captionfx, lottiefx, marks, pip as pipmod, progress as pgmod, style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -1887,9 +1887,83 @@ CUES = {
     "checklist": ["שעות", "רשימ", "לוודא", "hours", "checklist", "steps", "every"],
     "pipeline":  ["קודם", "אחר כך", "תהליך", "שלב", "first", "then", "after", "process", "step"],
     "contrast":  ["לעומת", "במקום", "מצד שני", "instead of", "versus", "rather than"],
+    # Added with the pack. A draft that never reaches for the doodle, the chips
+    # or the structure diagram is why the owner watched a reel built on the
+    # whole library and said "it's the same! No doodles, no animations".
+    "doodle":    ["תשומת לב", "שימו לב", "הנקודה", "בעצם", "look", "notice", "point",
+                  "the thing is", "imagine", "picture"],
+    "chips":     ["גם", "וגם", "בנוסף", "שלושה", "כמה", "also", "plus", "and also",
+                  "three things", "a few"],
+    "progress":  ["קודם", "אחר כך", "שלב", "בסוף", "first", "then", "finally",
+                  "step one", "next"],
     "stat":      [],   # digit-driven, see below
 }
+
+# Words too common to be worth emphasising. A detonation on "the" is noise, and
+# the profile only allows a handful per reel.
+STOPWORDS = {
+    "של", "את", "על", "לא", "אני", "הוא", "היא", "זה", "זאת", "כי", "אם", "גם",
+    "the", "and", "that", "this", "with", "from", "your", "you", "for", "was",
+    "are", "but", "not", "have", "has", "will", "can", "all", "one", "just",
+}
 DIGIT = re.compile(r"\d")
+
+
+def emphasis_rules(words, sty, limit_hint=3):
+    """Caption emphasis, chosen from what was actually said.
+
+    Detonation and highlight exist and no draft had ever used them, so every
+    reel shipped with flat captions no matter how much the library had grown.
+    The words are picked from the transcript rather than invented: the most
+    repeated content word gets the detonation, the next two get a highlight,
+    and anything too short or too common is skipped because a detonated "the"
+    is noise.
+
+    The profile's `maxDetonations` is a ceiling, not a target - it is what the
+    reference corpus tolerates before the treatment stops reading as emphasis.
+    """
+    caps = (sty or {}).get("captions") or {}
+    cap = int(caps.get("maxDetonations", limit_hint) or limit_hint)
+    counts = {}
+    for w in words:
+        t = re.sub(r"[^\w\u0590-\u05FF]", "", str(w.get("text", ""))).strip()
+        if len(t) < 4 or t.casefold() in STOPWORDS or t.isdigit():
+            continue
+        counts[t] = counts.get(t, 0) + 1
+    ranked = sorted(counts, key=lambda t: (-counts[t], -len(t), t))
+    out = []
+    for i, t in enumerate(ranked[:max(0, min(3, cap))]):
+        out.append({"word": t, "style": "detonate" if i == 0 else "highlight",
+                    "accent": i + 1})
+    return out
+
+
+def lower_third_fits(project, H, cap_top, beats):
+    """Whether a lower-third can be placed at all on THIS footage.
+
+    The band parks between the chin and the caption band, and on a close framing
+    there is no room between them - the gate would refuse it and the render
+    would die having wasted the kernel time. So the planner asks first rather
+    than authoring a beat that cannot pass.
+
+    No measurement means no: a lower-third placed blind is one the face-zone law
+    has not cleared.
+    """
+    vid = os.path.join(project, "public", "input-video.mp4")
+    if not os.path.exists(beats and vid or ""):
+        return False, "no footage to measure the head against"
+    times = {b["id"]: [b["start"] + (b["end"] - b["start"]) * f for f in (0.2, 0.5, 0.8)]
+             for b in beats}
+    faces = detect_faces(vid, times, 1080, H, cache_dir=project)
+    rects = [r for r in (head_rect(f) for f in faces.values()) if r]
+    if not rects:
+        return False, "no head detected - a lower-third placed blind is not cleared"
+    lowest = max(r[1] + r[3] for r in rects)
+    y, height = pgmod.band_rect(H, cap_top, lowest)
+    if y < lowest:
+        return False, (f"the head reaches y={lowest:.0f} and the band would start at "
+                       f"y={y} - there is no room between the chin and the captions")
+    return True, f"band at y={y}, clear of a head reaching y={lowest:.0f}"
 
 
 def draft_plan(project, lang, max_beats):
@@ -1919,6 +1993,7 @@ def draft_plan(project, lang, max_beats):
     # one of its own cards would fail the pacing gate on. With pacing off the
     # old 5.5s/2.0s numbers stand, so a base-profile draft is unchanged.
     sty, _ = style.for_plan({})
+    _sty = sty
     lo, hi = style.dwell_window(sty)
     close_at = (float(lo) + float(hi)) / 2 if lo and hi else 5.5
     runt = float(lo) if lo else 2.0
@@ -1942,6 +2017,7 @@ def draft_plan(project, lang, max_beats):
     flats = [[w for cl in grp for w in cl] for grp in beats]
     starts = [round(f[0]["start"] - 0.08, 2) for f in flats]
     out = []
+    prev_kind = None
     for bi, flat in enumerate(flats):
         text = " ".join(w["text"] for w in flat)
         st = starts[bi]
@@ -1976,9 +2052,19 @@ def draft_plan(project, lang, max_beats):
             kind = "stat"
             data = {"from": 0, "to": int(nums[-1]), "unit": "TODO", "note": ""}
         else:
-            for k, cues in CUES.items():
-                if k != "stat" and any(c in low for c in cues):
-                    kind = k; break
+            # Every family the text matches, in order - not just the first.
+            hits = [k for k, cues in CUES.items()
+                    if k != "stat" and any(c in low for c in cues)]
+            # Variety by construction. The old rule took the first match every
+            # time, so a transcript that says "code" three times drafted three
+            # identical code cards in a row and the reel read as one long slide.
+            # A repeat falls through to the next family that matched, and to the
+            # doodle when none did - which is editorially right as well as
+            # varied: a doodle is emphasis, not a claim about an artifact.
+            kind = next((k for k in hits if k != prev_kind), None) or \
+                (hits[0] if hits else None)
+            if kind is not None and kind == prev_kind:
+                kind = "doodle" if prev_kind != "doodle" else hits[0]
             if kind == "chat":
                 data = {"msgs": [{"side": "l", "text": "TODO"}, {"side": "r", "text": "TODO"}]}
             elif kind == "code":
@@ -1992,6 +2078,20 @@ def draft_plan(project, lang, max_beats):
                 data = {"nodes": ["TODO", "TODO", "TODO"]}
             elif kind == "contrast":
                 data = {"from": "TODO", "to": "TODO"}
+            elif kind == "doodle":
+                # A mark from the family, drawn ON the beat. The family exists
+                # precisely so a draft can reach for it without anyone pasting
+                # raw SVG, which is what kept doodles out of every draft so far.
+                data = {"caption": "TODO", "width": 720,
+                        "marks": [{"mark": marks.NAMES[bi % len(marks.NAMES)],
+                                   "at": 0.35, "accent": (bi % 4) + 1}]}
+            elif kind == "chips":
+                data = {"items": [{"text": "TODO", "check": True},
+                                  {"text": "TODO"}, {"text": "TODO"}]}
+            elif kind == "progress":
+                data = {"title": "TODO", "numbered": True,
+                        "sections": [{"label": "TODO"}, {"label": "TODO"},
+                                     {"label": "TODO"}]}
 
         if not kind:
             continue                    # the face is the visual; captions still run
@@ -2001,6 +2101,7 @@ def draft_plan(project, lang, max_beats):
                                                "bars", "pipeline", "follow") else "top",
                 "intent": text[:110], "_said": text, "data": data}
         out.append(beat)
+        prev_kind = kind
 
     plan = {
         "_draft": ("Face-first heuristic draft. Known concrete processes become cards; unclassified "
@@ -2010,7 +2111,7 @@ def draft_plan(project, lang, max_beats):
         "brand": "default",
         "hook": {"title": select_hook(words, lang)[0], "runnersUp": select_hook(words, lang)[1],
                  "rationale": select_hook(words, lang)[2], "autoSelected": True},
-        "captions": {"enabled": True},
+        "captions": {"enabled": True, "emphasis": emphasis_rules(words, _sty)},
         "framing": {"scale": 1.0, "origin": "50% 30%", "punches": [
             {"at": round(float(f[0]["start"]), 2),
              "from": (1.0 if (i // 2) % 2 else 1.045),
@@ -2019,10 +2120,24 @@ def draft_plan(project, lang, max_beats):
         ]},
         "beats": out,
     }
+    # The lower-third is the one card whose placement the footage decides. Ask
+    # before authoring it: on a close framing there is no room between the chin
+    # and the caption band, the gate would refuse it, and the render would die
+    # having already spent the kernel time.
+    fits, why = lower_third_fits(project, 1920, int(plan["captions"].get("top", 1500)), out)
+    if fits and out:
+        host = out[min(1, len(out) - 1)]
+        plan["beats"].insert(plan["beats"].index(host) + 1,
+                             {"id": "lower-third", "start": host["end"] + BEAT_GAP,
+                              "end": round(host["end"] + BEAT_GAP + (lo or 2.0), 2),
+                              "kind": "lowerthird", "mode": "top",
+                              "intent": "who is speaking",
+                              "data": {"name": "TODO", "title": "TODO"}})
     dest = os.path.join(project, "plan.draft.json")
     json.dump(plan, open(dest, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     todo = sum(1 for b in out if "TODO" in json.dumps(b, ensure_ascii=False))
-    print(f"reelkit: drafted {len(out)} concrete beat(s) -> {dest}")
+    print(f"reelkit: lower-third {'placed' if fits else 'skipped'} - {why}")
+    print(f"reelkit: drafted {len(plan['beats'])} concrete beat(s) -> {dest}")
     print(f"reelkit: {todo} beat(s) still need content. Unclassified clauses stay on the face.")
     print("reelkit: timing comes from the transcript; delete any guessed card that does not add evidence.")
     return 0
@@ -2057,32 +2172,33 @@ def scaffold(project, video, fps, width, height, upscale):
 
     for f in os.listdir(os.path.join(SKILL, "assets", "fonts")):
         shutil.copy2(os.path.join(SKILL, "assets", "fonts", f), os.path.join(pub, "fonts", f))
-    gs = os.path.join(SKILL, "assets", "vendor", "gsap.min.js")
-    if os.path.exists(gs):
-        shutil.copy2(gs, os.path.join(pub, "vendor", "gsap.min.js"))
-    # The Lottie player and every badge are vendored, never hotlinked: a render
-    # kernel may have no egress, and a CDN fetch is also an unaccounted licence.
-    lt = os.path.join(SKILL, "assets", "vendor", "lottie.min.js")
-    if os.path.exists(lt):
-        shutil.copy2(lt, os.path.join(pub, "vendor", "lottie.min.js"))
-    else:
+    # The animation engine and the Lottie player are vendored, never fetched: a
+    # render kernel may have no egress, and #20's Kaggle run died on exactly that
+    # npm call. Both resolutions are independent - the GSAP fallback used to be
+    # nested under the Lottie check, so once lottie.min.js existed the fallback
+    # could not run at all and a missing GSAP went looking for nothing.
+    for name in ("gsap.min.js", "lottie.min.js"):
+        src = os.path.join(SKILL, "assets", "vendor", name)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(pub, "vendor", name))
+    dst_gsap = os.path.join(pub, "vendor", "gsap.min.js")
+    if not os.path.exists(dst_gsap):
         for cand in (os.path.expanduser("~/.claude/skills/talking-head-recut/assets/vendor/gsap.min.js"),
                      os.path.expanduser("~/.agents/skills/talking-head-recut/assets/vendor/gsap.min.js")):
             if os.path.exists(cand):
-                shutil.copy2(cand, os.path.join(pub, "vendor", "gsap.min.js")); break
+                shutil.copy2(cand, dst_gsap); break
         else:
-            # Not vendored on purpose: GSAP ships under its own licence, so the
-            # repo stays licence-clean and fetches it at scaffold time instead.
-            r = sh("npm pack gsap --silent --pack-destination /tmp 2>/dev/null")
+            # Last resort, and the one that fails on a kernel without egress.
+            sh("npm pack gsap --silent --pack-destination /tmp 2>/dev/null")
             tgz = next((os.path.join("/tmp", f) for f in sorted(os.listdir("/tmp"))
                         if f.startswith("gsap-") and f.endswith(".tgz")), None)
             if tgz:
                 sh(f"tar -xzf {tgz} -C /tmp package/dist/gsap.min.js")
-                src = "/tmp/package/dist/gsap.min.js"
-                if os.path.exists(src):
-                    shutil.copy2(src, os.path.join(pub, "vendor", "gsap.min.js"))
-            if not os.path.exists(os.path.join(pub, "vendor", "gsap.min.js")):
-                die("gsap.min.js not found. Either install the HyperFrames skills "
+                if os.path.exists("/tmp/package/dist/gsap.min.js"):
+                    shutil.copy2("/tmp/package/dist/gsap.min.js", dst_gsap)
+            if not os.path.exists(dst_gsap):
+                die("gsap.min.js not found. It ships in assets/vendor/; if it has "
+                    "been removed, either install the HyperFrames skills "
                     f"(`npx {HF} skills update talking-head-recut`) or "
                     "`npm i gsap` and copy dist/gsap.min.js into <project>/public/vendor/.")
 
