@@ -73,7 +73,7 @@ class AudibilityRegressions(unittest.TestCase):
                 audiomix.prove(out, out, cues, log=lambda *args: None)
             self.assertIn('1 of 1 cue(s)', str(error.exception))
 
-    def test_short_cue_stalled_at_ceiling_gets_one_measured_dry_retry(self):
+    def test_short_cue_still_inaudible_gets_one_measured_dry_retry(self):
         with tempfile.TemporaryDirectory() as directory:
             voice, video, out = self.project(directory)
             public = Path(directory) / 'public'
@@ -85,7 +85,9 @@ class AudibilityRegressions(unittest.TestCase):
             cues = audiomix.calibrate(audiomix.cues(directory), voice,
                                       log=lambda *args: None)
             weak = cues[1]
-            weak['volume'] = audiomix.MAX_VOLUME
+            # Below the volume ceiling on purpose: the fallback must fire on
+            # the still-failing measurement, not only at MAX_VOLUME.
+            weak['volume'] = 2.0
             audiomix._render(video, voice, [weak], out, None, self.DUCK,
                              lambda *args: None)
             before = loudness.headroom(out, voice, weak['at'])[0]
