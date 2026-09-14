@@ -3,22 +3,71 @@
   "version": 1,
   "extends": "base",
   "brand": "assaf",
-
   "captions": {
     "maxWords": 2
   },
-
   "motion": {
     "kinds": {
-      "doodle": { "fade": { "duration": 0.40, "ease": "power1.inOut" } },
-      "image":  { "slide": { "duration": 0.42, "ease": "power3.out" } },
-      "hero":   { "pop": { "duration": 0.34, "ease": "back.out(2.2)", "scale": 0.72 } }
+      "doodle": {
+        "fade": {
+          "duration": 0.4,
+          "ease": "power1.inOut"
+        }
+      },
+      "image": {
+        "slide": {
+          "duration": 0.42,
+          "ease": "power3.out"
+        }
+      },
+      "hero": {
+        "pop": {
+          "duration": 0.34,
+          "ease": "back.out(2.2)",
+          "scale": 0.72
+        }
+      }
     }
   },
-
   "pacing": {
     "dwellMin": 2.0,
     "dwellMax": 4.0,
     "severity": "error"
+  },
+  "audio": {
+    "voice": {
+      "enabled": true,
+      "highpassHz": 80,
+      "compressor": {
+        "thresholdDb": -18,
+        "ratio": 3,
+        "attackMs": 5,
+        "releaseMs": 120,
+        "makeupDb": 2
+      },
+      "eq": [
+        {
+          "hz": 220,
+          "gainDb": -2,
+          "q": 1.0
+        },
+        {
+          "hz": 3200,
+          "gainDb": 2,
+          "q": 1.0
+        }
+      ],
+      "limiter": {
+        "enabled": true,
+        "limit": 0.95
+      }
+    },
+    "duck": {
+      "enabled": true,
+      "threshold": 0.05,
+      "ratio": 8,
+      "attackMs": 5,
+      "releaseMs": 250
+    }
   }
 }

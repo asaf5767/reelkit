@@ -3,6 +3,9 @@
 import argparse, copy, hashlib, json, math, os, shutil, subprocess, sys
 from pathlib import Path
 
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+import audiomix, style  # noqa: E402
+
 
 def run(cmd, cwd=None):
     print('+', ' '.join(map(str,cmd)), flush=True)
@@ -198,7 +201,7 @@ def prepare(src, wd, plan, transcript, fps, bounds, i, st, en):
     json.dump(tw,open(seg/'transcript.json','w'),ensure_ascii=False,indent=2)
     media=pub/'input-video.mp4'
     if not valid_video(media,round((en-st)*fps)):
-        tmp=str(media)+'.tmp.mp4';run(['ffmpeg','-y','-v','error','-i',src/'public/input-video.mp4','-filter_complex',f'[0:v]trim=start={st}:end={en},setpts=PTS-STARTPTS,fps={fps}[v];[0:a]atrim=start={st}:end={en},asetpts=PTS-STARTPTS[a]','-map','[v]','-map','[a]','-c:v','libx264','-preset','veryfast','-crf','17','-g',fps,'-keyint_min',fps,'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k',tmp]);os.replace(tmp,media)
+        tmp=str(media)+'.tmp.mp4';run(['ffmpeg','-y','-v','error','-i',src/'public/input-video.mp4','-filter_complex',f'[0:v]trim=start={st}:end={en},setpts=PTS-STARTPTS,fps={fps}[v];[0:a]atrim=start={st}:end={en},asetpts=PTS-STARTPTS[a]','-map','[v]','-map','[a]','-map_chapters','-1','-c:v','libx264','-preset','veryfast','-crf','17','-g',fps,'-keyint_min',fps,'-pix_fmt','yuv420p','-c:a','aac','-b:a','192k',tmp]);os.replace(tmp,media)
 
 
 def main():
@@ -239,7 +242,8 @@ def main():
         if ok:print('resume: keeping',out);continue
         if out.exists():print(f'resume: re-rendering {out.name} - {why}')
         run(['python3',z.reelkit,'build','--project',s['project']])
-        run(['python3',z.reelkit,'render','--project',s['project'],'--out',out,'--workers',z.workers])
+        run(['python3',z.reelkit,'render','--project',s['project'],'--out',out,
+             '--workers',z.workers,'--no-audio-mix'])
         # Written only after a successful render, so an interrupted one leaves no
         # claim behind and the next run redoes it.
         sidecar(out).write_text(json.dumps({'key':key,'frames':s['frames'],'fps':fps,
@@ -247,8 +251,19 @@ def main():
     concat=wd/'concat.txt';concat.write_text(''.join("file '%s'\n"%s['output'].replace("'","'\\''") for s in targets))
     # Segment AAC carries encoder priming at every boundary. Discard it: join only
     # rendered video and mux the original staged audio once, preserving exact sync.
-    video=wd/'joined-video.mp4';run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',concat,'-map','0:v:0','-an','-c','copy',video])
-    raw=wd/'joined.mp4';run(['ffmpeg','-y','-v','error','-i',video,'-i',src/'public/input-video.mp4','-map','0:v:0','-map','1:a:0','-c','copy','-shortest',raw])
+    video=wd/'joined-video.mp4';run(['ffmpeg','-y','-v','error','-f','concat','-safe','0','-i',concat,'-map','0:v:0','-map_chapters','-1','-an','-c','copy',video])
+    # The audio mix stage owns the delivered audio. This used to be a straight
+    # `-map 1:a:0` from the source, which kept sync perfectly and silently threw
+    # away every SFX cue the build had placed - measured at two cue timestamps on
+    # the 12s sample, the segmented final matched the untouched source to 0.1 dB
+    # while the direct render was 4 dB louder at the same instants. Cues are
+    # placed against the original audio at absolute times, so segment boundaries
+    # and their encoder priming never enter into it.
+    raw=wd/'joined.mp4'
+    sty,_prov=style.for_plan(json.loads((src/'plan.json').read_text(encoding='utf-8')))
+    voice,duck=style.audio_cfg(sty)
+    audiomix.mix(str(src),str(video),str(src/'public/input-video.mp4'),str(raw),
+                 voice=voice,duck=duck)
     run(['python3',z.reelkit,'export','--project',src,'--input',raw,'--out',Path(z.out).resolve()])
 
 if __name__=='__main__':main()

@@ -20,7 +20,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    split_canvas_h_face, detect_faces,
                    canvas_image_box, wants_plate, head_rect, head_clear_y)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
-import style  # noqa: E402
+import audiomix, style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -1080,8 +1080,11 @@ def cut_video(src, dest, keeps, fps):
                      f"[0:a]atrim={a}:{b},asetpts=PTS-STARTPTS[a{i}]")
         maps += f"[v{i}][a{i}]"
     fc = ";".join(parts) + f";{maps}concat=n={len(segs)}:v=1:a=1[v][a]"
+    # -map_chapters -1: a phone source can carry chapters (so can an exported
+    # music-tool render), they are global metadata that no -map touches, and the
+    # mp4 muxer writes them out as a bin_data track further down the pipeline.
     cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-           "-r", str(fps), "-c:v", "libx264", "-crf", "17", "-preset", "medium",
+           "-map_chapters", "-1", "-r", str(fps), "-c:v", "libx264", "-crf", "17", "-preset", "medium",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", dest, "-loglevel", "error"]
     r = sh(cmd)
     if r.returncode != 0 or not os.path.exists(dest):
@@ -1311,6 +1314,47 @@ def sfx_lead_silence(path):
     return min(1.0, float(end.group(1)))
 
 
+def chapters(path):
+    """Chapter titles embedded in a media file, or []."""
+    r = sh(["ffprobe", "-v", "error", "-print_format", "json", "-show_chapters", path])
+    try:
+        return [c.get("tags", {}).get("title", "") for c in
+                json.loads(r.stdout).get("chapters", [])]
+    except Exception:
+        return []
+
+
+def strip_chapters(path):
+    """Rewrite `path` chapter-free, in place. Returns the titles it removed.
+
+    Chapters are GLOBAL metadata, not streams, so `-map`, `-dn` and `-sn` never
+    touch them: a cue carrying one rides through every mux that takes it as an
+    input, and the MP4 muxer then materialises it as a `bin_data` track in the
+    deliverable. That is the leak the container audit caught on Kaggle - the
+    three bundled whoosh files each carry an Ableton export residue chapter
+    ("Tempo: 120.0"). Every mux now passes `-map_chapters -1`; stripping on
+    ingest kills the source of it as well, for libraries we do not control
+    (media-use, a custom sfxDir).
+
+    Stream copy, so it costs milliseconds and changes no audio.
+    """
+    titles = chapters(path)
+    if not titles:
+        return []
+    tmp = path + ".nochap.tmp" + os.path.splitext(path)[1]
+    r = sh(["ffmpeg", "-y", "-v", "error", "-i", path,
+            "-map_chapters", "-1", "-map_metadata", "-1", "-c", "copy", tmp])
+    if r.returncode != 0 or not os.path.exists(tmp):
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        die(f"sfx asset {os.path.basename(path)} carries chapter metadata "
+            f"({', '.join(t for t in titles if t) or 'untitled'}) and it could "
+            f"not be stripped:\n{r.stderr[-600:]}\nChapters become a bin_data "
+            "track in the deliverable and fail the container audit.")
+    os.replace(tmp, path)
+    return titles
+
+
 def sfx_duration(sdir, name, fname):
     man = os.path.join(sdir, "manifest.json")
     if os.path.exists(man):
@@ -1495,6 +1539,10 @@ def resolve_sfx(plan, pub, dur, an):
             else:
                 dst = os.path.join(pub, "sfx", f"{c['name']}.mp3")
                 shutil.copy2(src, dst)
+                gone = strip_chapters(dst)
+                if gone:
+                    print(f"reelkit: stripped {len(gone)} chapter(s) from sfx "
+                          f"'{c['name']}' on ingest")
                 files[c["name"]] = (f"{c['name']}.mp3",
                                     sfx_duration(from_dir, c["name"], f"{c['name']}.mp3"),
                                     sfx_gain(dst, float(plan.get("audio", {}).get("sfxTargetDb", -11.0))),
@@ -1777,6 +1825,13 @@ def _stream_info(path):
     return v, a
 
 
+def _extra_streams(path):
+    """Stream kinds that are neither video nor audio."""
+    r = sh(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+            "-of", "default=nw=1:nk=1", path])
+    return [k for k in r.stdout.split() if k not in ("video", "audio")]
+
+
 def container_problems(path):
     """Phone-safe container audit for a deliverable MP4. Returns
     [(level, message)]: ERROR = phones/WhatsApp fail to open it,
@@ -1796,6 +1851,27 @@ def container_problems(path):
                               "`reelkit.py export` writes them"))
     if a and a.get("codec_name") != "aac":
         probs.append(("WARN", f"audio codec {a.get('codec_name')} - AAC is the safe choice"))
+    # Anything that is not the video or the audio has no business in a
+    # deliverable. A phone source can carry a timecode or telemetry data track,
+    # and a `-c copy` without explicit maps carries it all the way through - it
+    # survived every gate because nothing was looking for it.
+    # Chapters are global metadata rather than streams, so they survive -map,
+    # -dn and -sn; the MP4 muxer then writes them out as a bin_data track. Name
+    # them explicitly, because "unexpected bin_data stream" sends you looking
+    # for a stream that was never there.
+    chaps = chapters(path)
+    if chaps:
+        probs.append(("ERROR", f"{len(chaps)} chapter(s) embedded in the container "
+                               f"({', '.join(t for t in chaps if t) or 'untitled'}) - "
+                               "they surface as a bin_data track on phones; mux with "
+                               "`-map_chapters -1`"))
+    extra = _extra_streams(path)
+    if extra:
+        kinds = ", ".join(sorted(extra))
+        probs.append(("ERROR", f"{len(extra)} unexpected stream(s) in the container "
+                               f"({kinds}) - a deliverable carries video and audio only; "
+                               "map them explicitly when muxing"))
+
     return probs
 
 
@@ -1809,12 +1885,21 @@ def export_deliverable(project, inp, out):
             and a.get("codec_name") in (None, "aac"):
         # Codecs already safe: lossless remux to bring the index forward and
         # write the colour tags.
-        cmd = ["ffmpeg", "-y", "-i", src, "-c", "copy", "-movflags", "+faststart",
+        # Map explicitly. Without it `-c copy` carries whatever the source has,
+        # and a phone clip's timecode/telemetry track rides all the way into the
+        # deliverable - the leak the container audit caught on Kaggle. `0:a:0?`
+        # keeps a silent source working rather than failing on a missing stream.
+        cmd = ["ffmpeg", "-y", "-i", src,
+               "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+               "-map_chapters", "-1",
+               "-c", "copy", "-movflags", "+faststart",
                "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1",
                dst, "-loglevel", "error"]
         how = "remuxed (codecs already phone-safe)"
     else:
         cmd = ["ffmpeg", "-y", "-i", src,
+               "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+               "-map_chapters", "-1",
                "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-profile:v", "high",
                "-pix_fmt", "yuv420p", "-color_primaries", "1", "-color_trc", "1",
                "-colorspace", "1", "-movflags", "+faststart",
@@ -1841,7 +1926,10 @@ def export_deliverable(project, inp, out):
         # from one directory would also share that fixed name and feed each
         # other's statistics into the second pass.
         plog = dst + ".passlog"
-        base = ["ffmpeg", "-y", "-i", dst, "-c:v", "libx264", "-preset", "slow",
+        base = ["ffmpeg", "-y", "-i", dst,
+                "-map", "0:v:0", "-map", "0:a:0?", "-dn", "-sn", "-write_tmcd", "0",
+               "-map_chapters", "-1",
+                "-c:v", "libx264", "-preset", "slow",
                 "-b:v", f"{vkbps}k", "-pix_fmt", "yuv420p", "-passlogfile", plog,
                 "-color_primaries", "1", "-color_trc", "1", "-colorspace", "1"]
         try:
@@ -1985,7 +2073,7 @@ def render_gate(project):
 
 
 def render_project(project, output, workers=None, preview=False, checkpoint_dir=None,
-                   software_gpu=False, keep_raw=False):
+                   software_gpu=False, keep_raw=False, mix_audio=True):
     """Render through HyperFrames with deterministic sizing and a fast preview lane."""
     project = os.path.abspath(project)
     public = os.path.join(project, "public")
@@ -2034,8 +2122,29 @@ def render_project(project, output, workers=None, preview=False, checkpoint_dir=
     r = subprocess.run(cmd, cwd=project)
     if r.returncode or not os.path.exists(raw):
         die(f"HyperFrames render failed with exit {r.returncode}")
+    # The audio mix stage owns the delivered audio in BOTH render paths, so the
+    # direct and segmented renders cannot disagree about what a reel sounds
+    # like. The renderer's own audio track is dropped here on purpose: cues are
+    # re-placed against the original file at absolute times, which is what lets
+    # the segmented path carry them at all.
+    # A segment's audio is thrown away by the join's `-an`, so mixing it there
+    # is work nobody hears. segmentrender turns this off and mixes once, on the
+    # joined video, against the original audio.
+    if not mix_audio:
+        export_deliverable(project, raw, out)
+        if not keep_raw:
+            os.remove(raw)
+        print(f"reelkit: render complete -> {out} (audio mix deferred to the join)")
+        return 0
+    plan_ = json.load(open(os.path.join(project, "plan.json"), encoding="utf-8"))
+    sty_, _p = style.for_plan(plan_)
+    voice_, duck_ = style.audio_cfg(sty_)
+    mixed = raw + ".mixed.mp4"
+    audiomix.mix(project, raw, os.path.join(project, "public", "input-video.mp4"),
+                 mixed, voice=voice_, duck=duck_)
     # Preview and full output both pass through the existing phone-safe export.
-    export_deliverable(project, raw, out)
+    export_deliverable(project, mixed, out)
+    os.remove(mixed)
     if not keep_raw: os.remove(raw)
     print(f"reelkit: render complete -> {out}")
     return 0
@@ -2099,6 +2208,8 @@ def main():
     e = sub.add_parser("export"); e.add_argument("--project", required=True)
     e.add_argument("--input", default="output.mp4"); e.add_argument("--out", default="final.mp4")
     rr = sub.add_parser("render"); rr.add_argument("--project", required=True)
+    rr.add_argument("--no-audio-mix", action="store_true",
+                    help="render video only; the caller mixes audio (segmentrender)")
     rr.add_argument("--out", default="final.mp4"); rr.add_argument("--workers", type=int)
     rr.add_argument("--preview", action="store_true", help="10fps draft iteration render")
     rr.add_argument("--checkpoint-dir", help="write a reconstruction bundle before rendering")
@@ -2119,7 +2230,8 @@ def main():
         return export_deliverable(a.project, a.input, a.out)
     if a.cmd == "render":
         return render_project(a.project, a.out, a.workers, a.preview,
-                              a.checkpoint_dir, a.software_gpu, a.keep_raw)
+                              a.checkpoint_dir, a.software_gpu, a.keep_raw,
+                              mix_audio=not a.no_audio_mix)
     if a.cmd == "cut":
         keeps = [[float(x) for x in seg.split(":")] for seg in a.keep.split(",")]
         return cut_video(a.video, a.out, keeps, a.fps)
