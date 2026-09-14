@@ -285,6 +285,21 @@ def doodle_findings(resolved, plan):
     return out
 
 
+def dwell_window(resolved):
+    """The dwell the profile enforces, as (min, max) seconds, or (None, None)
+    when it enforces none.
+
+    The PLANNER reads this, not just the gate. A pipeline whose own generated
+    plan trips its own pacing rule is the pipeline failing its doctrine, so the
+    two sides have to read the same number from the same place - the gate stays
+    fail-closed either way, and this is what keeps it from having to fire.
+    """
+    p = resolved.get("pacing") or {}
+    if p.get("severity", "off") == "off":
+        return None, None
+    return p.get("dwellMin"), p.get("dwellMax")
+
+
 def pacing_findings(resolved, plan):
     """Dwell enforcement. Q2 answered ENFORCED, so this is a gate finding and
     its severity is the profile's - `off` for a plan that predates the house

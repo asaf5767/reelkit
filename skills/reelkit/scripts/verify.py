@@ -140,19 +140,37 @@ def overlap_pct(a, b):
 
 
 # ------------------------------------------------------------------ main
+def gated_plan(project, plan):
+    """What the gate measures: the plan as BUILT, not as authored.
+
+    build materialises the mandatory hook, re-cuts what the hook shortens, and
+    resolves the caption band against the measured head. None of that is written
+    back to plan.json - build stays a pure function of the plan plus the media -
+    so a gate reading plan.json alone measures a reel nobody rendered. That is
+    how the one card on screen at frame 0 of every reel went unmeasured, and how
+    a caption band authored at 1500 was gated at 1500 after the build had already
+    moved it.
+
+    A damaged sidecar falls back to the plan rather than taking the gate down
+    with it: less information, never none.
+    """
+    path = os.path.join(project, "built-beats.json")
+    if not os.path.exists(path):
+        return plan
+    try:
+        sidecar = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return plan
+    out = dict(plan)
+    for key in ("beats", "captions"):
+        if sidecar.get(key):
+            out[key] = sidecar[key]
+    return out
+
+
 def run(project, as_json, fix):
     plan = json.load(open(os.path.join(project, "plan.json"), encoding="utf-8"))
-    # Gate what was BUILT, not what was authored. build materialises the
-    # mandatory hook and resolves card layouts; reading plan.json alone left the
-    # opening card - the only one guaranteed to exist in every reel - unmeasured.
-    built = os.path.join(project, "built-beats.json")
-    if os.path.exists(built):
-        try:
-            b = json.load(open(built, encoding="utf-8")).get("beats")
-            if b:
-                plan = dict(plan, beats=b)
-        except Exception:
-            pass                    # a damaged sidecar falls back to the plan
+    plan = gated_plan(project, plan)
     meta = plan.get("meta", {})
     W = int(meta.get("width", 1080)); H = int(meta.get("height", 1920))
     pub = os.path.join(project, "public")

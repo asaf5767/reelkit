@@ -8,12 +8,12 @@ from black. A `fromTo` starting at opacity 0 leaves frame 0 blank, and that
 blank frame IS the lead-in the treatment exists to remove, so "frame one" is a
 `set` and is tested as one.
 """
-import sys,unittest
+import json,sys,tempfile,unittest
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT/'skills/reelkit/scripts'))
-import cards,heavy,reelkit,style  # noqa: E402
+import cards,heavy,reelkit,style,verify  # noqa: E402
 
 
 def build(data,st=0.0,en=3.6,dirn='ltr'):
@@ -166,19 +166,37 @@ class TheHookIsGated(unittest.TestCase):
     of every reel was never measured against the head zone. Caught while wiring
     this slice; the gate reads the built beats now."""
 
-    def test_build_records_what_it_actually_built(self):
-        src=(ROOT/'skills/reelkit/scripts/reelkit.py').read_text()
-        self.assertIn('built-beats.json',src)
+    # These read the sidecar through verify's own resolver rather than grepping
+    # the source. The grep version passed a rewrite that changed what the gate
+    # measures, which is exactly the thing it was supposed to be watching.
+
+    def _project(self, sidecar):
+        d=tempfile.mkdtemp()
+        if sidecar is not None:
+            (Path(d)/'built-beats.json').write_text(sidecar)
+        return d
 
     def test_verify_prefers_the_built_beats(self):
-        src=(ROOT/'skills/reelkit/scripts/verify.py').read_text()
-        i=src.index('built-beats.json')
-        self.assertIn('plan = dict(plan, beats=b)',src[i:i+400])
+        plan={'beats':[{'id':'authored'}],'captions':{'top':1500}}
+        d=self._project(json.dumps({'beats':[{'id':'reelkit-hook'},{'id':'b01'}],
+                                    'captions':{'top':1587,'height':360}}))
+        got=verify.gated_plan(d,plan)
+        self.assertEqual([b['id'] for b in got['beats']],['reelkit-hook','b01'],
+                         'the gate must measure the beats build materialised')
+        self.assertEqual(got['captions']['top'],1587,
+                         'the gate must measure the band build resolved, not the authored one')
+        self.assertEqual(plan['beats'],[{'id':'authored'}],'the authored plan is not mutated')
+
+    def test_no_sidecar_leaves_the_plan_alone(self):
+        plan={'beats':[{'id':'authored'}]}
+        self.assertEqual(verify.gated_plan(self._project(None),plan),plan)
 
     def test_a_damaged_sidecar_falls_back_rather_than_crashing(self):
-        src=(ROOT/'skills/reelkit/scripts/verify.py').read_text()
-        i=src.index('built-beats.json')
-        self.assertIn('except Exception',src[i:i+400])
+        plan={'beats':[{'id':'authored'}],'captions':{'top':1500}}
+        for junk in ('{"beats": [','','not json at all','{"beats": []}'):
+            got=verify.gated_plan(self._project(junk),plan)
+            self.assertEqual([b['id'] for b in got['beats']],['authored'],
+                             f'a sidecar of {junk!r} must fall back, not crash or empty the gate')
 
 
 if __name__=='__main__': unittest.main()

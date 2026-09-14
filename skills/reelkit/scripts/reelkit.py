@@ -13,12 +13,13 @@ image-capable agent drop real artwork into named boxes.
 
 Everything is deterministic: same plan.json + same media => byte-identical HTML.
 """
-import argparse, glob, json, os, re, shutil, subprocess, sys, tarfile, tempfile, time
+import argparse, glob, json, os, re, shutil, statistics, subprocess, sys, tarfile, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    lang_direction as cards_lang_direction, split_canvas_h,
                    split_canvas_h_face, detect_faces,
-                   canvas_image_box, wants_plate, head_rect, head_clear_y)
+                   canvas_image_box, wants_plate, head_rect, head_clear_y,
+                   HEAD_MARGIN)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
 import audiomix, captionfx, style  # noqa: E402
 
@@ -37,6 +38,11 @@ SKILL = os.path.dirname(HERE)
 HF_VERSION = "0.8.36"
 HF = f"hyperframes@{HF_VERSION}"
 BRAND_DIR = os.path.join(SKILL, "assets", "brand")
+
+# Two beats may touch but never overlap - verify errors on `a.end > b.start` -
+# so anything that extends a beat leaves this much of a gap in front of the
+# next one.
+BEAT_GAP = 0.04
 
 def _load_default_brand():
     """The built-in brand IS assets/brand/default.json, never a copy of it.
@@ -473,11 +479,15 @@ def select_hook(words, lang):
     return "Wait - this changes the answer", ["Most people miss this part", "It sounds right. It isn't."], "generic tension fallback; opening context: " + first
 
 
-def ensure_mandatory_hook(project, plan, words, _style=None):
+def ensure_mandatory_hook(project, plan, words, _style=None, dur=None):
     """Materialize a mandatory hook beat and a review report.
 
-    The hook may overlap speech, but not another graphic. Existing graphics that
-    occupy its opening window are delayed or removed when less than 0.5s remains.
+    The hook may overlap speech, but not another graphic. A graphic occupying
+    its opening window is delayed behind it, then re-cut so what is left still
+    holds for the profile's minimum dwell - extended when the next beat leaves
+    room, dropped when it does not. It used to be left at whatever remained,
+    which is how a 4.9s beat became a 1.3s one under a profile that holds a
+    layout 2-4s: the build emitted a plan its own pacing gate rejects.
     """
     lang = plan.get("meta", {}).get("lang", "en")
     hook = plan.get("hook") or {}
@@ -486,6 +496,14 @@ def ensure_mandatory_hook(project, plan, words, _style=None):
     rationale = hook.get("rationale") or "authored hook"
     if not title:
         title, runners, rationale = select_hook(words, lang)
+    # The hook belongs to the REEL, not to a slice of it. segmentrender builds
+    # every segment as its own project, so this ran once per segment: a title
+    # lockup landing again at 12s and at 24s, and the first beat of each later
+    # segment shoved past a hook window that had no business being there. A
+    # segment that does not start the reel carries no hook.
+    if float(plan.get("meta", {}).get("reelOffset", 0) or 0) > 0:
+        plan["beats"] = [b for b in plan.get("beats", []) if b.get("id") != "reelkit-hook"]
+        return title, runners[:3]
     end = round(min(4.0, max(2.6, float(hook.get("end", 3.6)))), 2)
     # Under a profile that asks for it the hook IS the title lockup, and it
     # opens on frame 0 rather than fading in after a lead-in. base keeps the
@@ -507,14 +525,31 @@ def ensure_mandatory_hook(project, plan, words, _style=None):
                  "intent": "mandatory scroll-stop hook",
                  "layout": {"top": 48, "scale": 0.72},
                  "data": data}
-    beats = [b for b in plan.get("beats", []) if b.get("id") != "reelkit-hook"]
+    beats = sorted([b for b in plan.get("beats", []) if b.get("id") != "reelkit-hook"],
+                   key=lambda x: float(x.get("start", 0)))
+    # What the beat has to still hold for once the hook has taken its opening.
+    # Under a profile that enforces pacing that is the profile's own minimum, so
+    # the build cannot emit what the gate rejects; with pacing off it is the old
+    # half-second, and a plan that predates the house style behaves as before.
+    lo, _hi = style.dwell_window(_style or {})
+    floor = max(0.5, float(lo)) if lo else 0.5
     kept = []
-    for b in beats:
+    for i, b in enumerate(beats):
         b = dict(b)
         if float(b.get("start", 0)) < end and float(b.get("end", 0)) > 0:
             b["start"] = end
-            if float(b.get("end", 0)) - end < 0.5:
-                continue
+            if float(b["end"]) - end < floor:
+                # Extend into the gap before the next beat rather than leave a
+                # runt; drop the beat when there is no gap to extend into. The
+                # face carries the moment either way - captions still run.
+                want = round(end + floor, 2)
+                nxt = next((float(x["start"]) for x in beats[i + 1:]
+                            if float(x["start"]) > end), None)
+                lim = [v for v in (None if nxt is None else nxt - BEAT_GAP, dur)
+                       if v is not None]
+                if lim and want > min(lim):
+                    continue
+                b["end"] = want
         kept.append(b)
     plan["hook"] = {"title": title, "runnersUp": runners[:3], "rationale": rationale,
                     "autoSelected": not bool(hook.get("title")), "style": "scroll-stop-v1"}
@@ -526,6 +561,62 @@ def ensure_mandatory_hook(project, plan, words, _style=None):
 
 
 # ------------------------------------------------------------------ build
+def caption_band(project, plan, br, W, H, beats):
+    """Where the caption band sits, measured against the speaker rather than
+    assumed. Returns (top, height).
+
+    A fixed top is a guess about framing. 1500 clears a mid-shot and lands on
+    the chin of a closer one, which is exactly what happened on the runner: a
+    band authored at 1500 met a head reaching y=1515 and the face-zone gate
+    refused the render. The head is measured at the same timestamps the gate
+    samples, so the two cannot disagree about where it is.
+
+    The band only ever moves DOWN. An author who wants captions lower keeps
+    their value; doctrine wins when theirs would touch the face. The margin is
+    the first thing given up when the canvas runs out of room - clearing the
+    head is the rule, the breathing room is the preference - and if even that
+    does not fit, the band stays where it lands and verify refuses it. Build is
+    not the gate.
+
+    No detected head means no information, never "nothing to avoid": the
+    authored value stands and the gate still has to pass on its own.
+    """
+    cfg = plan.get("captions", {})
+    top = int(cfg.get("top", br["captionTop"]))
+    hgt = int(cfg.get("height", br["captionHeight"]))
+    vid = os.path.join(project, "public", "input-video.mp4")
+    if not os.path.exists(vid):
+        return top, hgt
+    times = {b["id"]: [b["start"] + (b["end"] - b["start"]) * f for f in (0.2, 0.5, 0.8)]
+             for b in beats}
+    faces = detect_faces(vid, times, W, H, cache_dir=project)
+    if not faces:
+        return top, hgt
+    # The lowest the head reaches anywhere a card is on screen. The gate errors
+    # on the first beat whose head the band touches, so the strictest beat is
+    # the one that decides the band.
+    rects = [r for r in (head_rect(f) for f in faces.values()) if r]
+    if not rects:
+        return top, hgt
+    lowest = max(r[1] + r[3] for r in rects)
+    # The mouth check uses the median face and asks for 40px; clearing the jaw
+    # of the worst beat clears it, but ask for both so neither gate is a
+    # surprise on footage where the head barely moves.
+    med = [statistics.median([f[i] for f in faces.values()]) for i in range(4)]
+    need = max(lowest, med[1] + med[3] * 0.75 + 40)
+    want = int(need) + HEAD_MARGIN
+    if want > top:
+        was = top
+        # Never off the bottom of the canvas: a band pushed past H - height is
+        # clipped, and a clipped caption fails silently. When no position both
+        # fits and clears the head the band stays on canvas and verify refuses
+        # the reel - loud beats invisible.
+        top = min(want, max(0, H - hgt))
+        print(f"reelkit: caption band y={was} -> {top} (the head reaches "
+              f"y={int(need)}; captions clear it by {top - int(need)}px)")
+    return top, hgt
+
+
 def fit_pass(project, plan, W, H, already):
     """Resolve every over-the-footage card against what was actually rendered.
 
@@ -609,7 +700,7 @@ def build(project, _layouts=None, _pass=1):
         if isinstance(words, dict):
             words = words.get("words") or words.get("segments") or []
 
-    hook_title, hook_runners = ensure_mandatory_hook(project, plan, words, _style=sty)
+    hook_title, hook_runners = ensure_mandatory_hook(project, plan, words, _style=sty, dur=dur)
     hosts, tls, visuals, missing = [], [], [], []
 
     # ---- video framing: base scale + optional clause-driven punch-ins ------
@@ -869,13 +960,17 @@ def build(project, _layouts=None, _pass=1):
         tls.append(f"tl.set({sel},{{visibility:'hidden'}},{en});")
 
     # ---- captions ---------------------------------------------------------
+    # Resolved before the band is drawn and recorded in built-beats.json, so the
+    # gate measures the band that was BUILT rather than the one that was
+    # authored - the same reason it reads the built beats.
+    cap_on = plan.get("captions", {}).get("enabled", True)
+    cap_top, cap_h = caption_band(project, plan, br, W, H, plan["beats"])
     caps = []
-    if plan.get("captions", {}).get("enabled", True) and words:
+    if cap_on and words:
         caps = caption_clips(words, br, dur, an, caps_cfg)
         hi = (plan.get("captions", {}).get("highlight") or
               br.get("captionHighlight") or br["accents"][0])
-        top = int(plan.get("captions", {}).get("top", br["captionTop"]))
-        hgt = int(plan.get("captions", {}).get("height", br["captionHeight"]))
+        top, hgt = cap_top, cap_h
         emph = captionfx.normalise(plan.get("captions", {}).get("emphasis"))
         det_cfg = caps_cfg.get("detonate") or {}
         for cp in caps:
@@ -1048,7 +1143,9 @@ window.__timelines["reelkit"] = tl;
     # and the mandatory hook is materialised here rather than written back to the
     # plan - so the one card on screen at frame 0 of every reel was never
     # measured against the head zone. It is now, because the gate reads this.
-    json.dump({"beats": plan["beats"]},
+    json.dump({"beats": plan["beats"],
+               "captions": dict(plan.get("captions", {}),
+                                enabled=cap_on, top=cap_top, height=cap_h)},
               open(os.path.join(project, "built-beats.json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=1)
 
@@ -1706,15 +1803,23 @@ def draft_plan(project, lang, max_beats):
     if cur:
         clauses.append(cur)
 
-    # 2. merge clauses into beats of roughly 4-7s, never splitting a clause
+    # 2. merge clauses into beats, never splitting a clause. The target is the
+    # profile's own dwell window, not a constant: the house profile holds a
+    # layout 2-4s, and a draft grouped to the old 5.5s emitted beats that every
+    # one of its own cards would fail the pacing gate on. With pacing off the
+    # old 5.5s/2.0s numbers stand, so a base-profile draft is unchanged.
+    sty, _ = style.for_plan({})
+    lo, hi = style.dwell_window(sty)
+    close_at = (float(lo) + float(hi)) / 2 if lo and hi else 5.5
+    runt = float(lo) if lo else 2.0
     beats, acc = [], []
     for cl in clauses:
         acc.append(cl)
         span = acc[-1][-1]["end"] - acc[0][0]["start"]
-        if span >= 5.5:
+        if span >= close_at:
             beats.append(acc); acc = []
     if acc:
-        if beats and (acc[-1][-1]["end"] - acc[0][0]["start"]) < 2.0:
+        if beats and (acc[-1][-1]["end"] - acc[0][0]["start"]) < runt:
             beats[-1].extend(acc)          # never leave a runt beat
         else:
             beats.append(acc)
@@ -1733,8 +1838,20 @@ def draft_plan(project, lang, max_beats):
         en = round(flat[-1]["end"] + 0.30, 2)
         if bi + 1 < len(flats):        # never overlap the next beat
             en = min(en, round(starts[bi + 1] - 0.04, 2))
-        if en <= st + 0.5:
-            en = round(st + 0.5, 2)
+        # The card's dwell, held inside the profile's window. A card does not
+        # have to span the whole clause it illustrates: capping at the maximum
+        # ends the graphic while the speech runs on, which is the cadence the
+        # window describes. Below the minimum there is nothing to show - the
+        # beat is dropped and the face carries the moment.
+        if hi and en - st > float(hi):
+            en = round(st + float(hi), 2)
+        floor = float(lo) if lo else 0.5
+        if en < st + floor:
+            room = round(starts[bi + 1] - BEAT_GAP, 2) if bi + 1 < len(flats) else None
+            want = round(st + floor, 2)
+            if room is not None and want > room:
+                continue                # no room to hold it long enough
+            en = want
         low = text.lower()
 
         kind, data = None, {}
