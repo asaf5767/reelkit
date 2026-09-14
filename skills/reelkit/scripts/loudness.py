@@ -51,18 +51,26 @@ AUDIBLE_TARGET = 10.0    # what the mix calibrates cues to
 
 
 def _decode(path, at=0.0, span=None):
-    """Mono float samples for one window, decoded sample-accurately.
-
-    `-ss` before `-i` seeks by keyframe and lands milliseconds away, which is
-    enough to miss a transient entirely; the trim goes in the filter chain
-    after a full decode, as everything in this pipeline that has to be sample
-    accurate does.
-    """
-    trim = f"atrim=start={at}" + (f":end={at + span}" if span else "")
+    """Decode sample-accurately; decoder failure must never look like silence."""
+    trim = f"atrim=start={at}" + (f":end={at + span}" if span is not None else "")
     af = f"{trim},asetpts=PTS-STARTPTS,aformat=sample_fmts=flt:sample_rates={RATE}:channel_layouts=mono"
-    r = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-af", af,
+    r = subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", path,
+                        "-map", "0:a:0", "-af", af,
                         "-f", "f32le", "-"], capture_output=True)
-    return np.frombuffer(r.stdout, dtype="<f4")
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode("utf-8", errors="replace")[-800:])
+    samples = np.frombuffer(r.stdout, dtype="<f4")
+    if not np.isfinite(samples).all():
+        raise ValueError("decoded audio contains non-finite samples")
+    return samples
+
+
+def duration(path):
+    """Delivered audio duration, from decoded samples rather than video metadata."""
+    samples = _decode(path)
+    if len(samples) == 0:
+        raise ValueError("audio stream contains no decoded samples")
+    return len(samples) / RATE
 
 
 def band_db(samples, rate=RATE):
@@ -123,8 +131,12 @@ def voice_floor(source, at, span=WINDOW):
 
 
 def asset_bands(path, at=0.0, span=WINDOW):
-    """A cue asset's own band levels, at unity gain."""
-    return band_db(_decode(path, at, span))
+    """Unity-gain cue in a full measurement window, including its silent tail."""
+    samples = _decode(path, at, span)
+    size = int(round(span * RATE))
+    if len(samples) < size:
+        samples = np.pad(samples, (0, size - len(samples)))
+    return band_db(samples)
 
 
 def level_db(path, at=0.0, span=None):
