@@ -581,6 +581,35 @@ def ensure_mandatory_hook(project, plan, words, _style=None, dur=None):
 
 
 # ------------------------------------------------------------------ build
+def frame_overflow_attr(framing):
+    """`data-layout-allow-overflow` when the framing crops on purpose, else "".
+
+    A punch-in scales the footage PAST the frame - that is what a punch-in is -
+    and #pip-frame crops it back, which is what that wrapper is for. The layout
+    checker cannot tell an intentional crop from a layout mistake, so it is
+    told: this attribute is the escape hatch the checker's own fixHint names.
+
+    It is emitted only when the composition really does scale past 1.0. A reel
+    with no punch keeps the checker live on this element instead of carrying a
+    standing exemption it does not need - an always-on attribute would silence
+    the next overflow here too, and that one might be real.
+
+    Pre-#18 this never reported at all: #video-wrap hung directly off the
+    composition root, which the checker does not treat as a clipping container.
+    The wrapper did not create the crop, it made an old one visible.
+    """
+    fr = framing or {}
+    try:
+        base = float(fr.get("scale", 1.0))
+        scales = [base] + [base * float(p[k]) for p in (fr.get("punches") or [])
+                           for k in ("from", "to") if p.get(k) is not None]
+    except Exception:
+        # Any shape we cannot measure, not just the two we thought of first: a
+        # framing block this cannot read is one whose crop we cannot rule out.
+        return " data-layout-allow-overflow"
+    return " data-layout-allow-overflow" if max(scales) > 1.0 else ""
+
+
 def caption_band(project, plan, br, W, H, beats):
     """Where the caption band sits, measured against the speaker rather than
     assumed. Returns (top, height).
@@ -727,6 +756,16 @@ def build(project, _layouts=None, _pass=1):
     fr = plan.get("framing", {})
     base = float(fr.get("scale", 1.0))
     origin = fr.get("origin", "50% 30%").replace("%", "\\u0025")
+    # A punch-in scales the footage PAST the frame on purpose - that is what a
+    # punch-in is - and #pip-frame crops it back, which is what that wrapper is
+    # for. The layout checker cannot tell an intentional crop from a layout
+    # mistake, so it is told: `data-layout-allow-overflow` is the escape hatch
+    # the checker's own fixHint names. Emitted only when the composition really
+    # does scale past 1.0, so a reel with no punch keeps the checker live on
+    # this element rather than carrying a standing exemption it does not need.
+    # (Pre-#18 this never reported: #video-wrap hung directly off the
+    # composition root, which the checker does not treat as a clipping
+    # container. The wrapper made a crop that was always there reportable.)
     tls.append(f"tl.set('#video-wrap',{{transformOrigin:'{origin}',scale:{base}}},0);")
     for p in fr.get("punches", []):
         tls.append(f"tl.fromTo('#video-wrap',{{scale:{round(base*float(p['from']),4)}}},"
@@ -1107,7 +1146,7 @@ def build(project, _layouts=None, _pass=1):
 <body>
 <div id="stage" data-composition-id="reelkit" data-start="0"
  data-duration="{dur}" data-fps="{fps}" data-width="{W}" data-height="{H}">
-<div id="pip-frame"><div class="video-wrapper" id="video-wrap">
+<div id="pip-frame"><div class="video-wrapper" id="video-wrap"{frame_overflow_attr(fr)}>
 <video id="bg-video" src="input-video.mp4" muted playsinline data-start="0"
  data-duration="{dur}" data-track-index="1"></video></div></div>
 <audio id="source-audio" src="input-video.mp4" data-start="0" data-duration="{dur}"

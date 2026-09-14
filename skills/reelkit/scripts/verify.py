@@ -61,6 +61,31 @@ def _composition_key(project):
     return mcache.sha(*sorted(parts))
 
 
+def _where(f):
+    """The part of a `hyperframes check` finding that says WHICH element.
+
+    The upstream message is the rule, not the instance - "Element extends
+    outside a clipping layout container" names no element, so reading one costs
+    a local re-run of the checker to get at the JSON. Everything needed is
+    already in the finding; this just stops the wrapper throwing it away.
+    """
+    bits = []
+    if f.get("selector"):
+        at = f" in {f['containerSelector']}" if f.get("containerSelector") else ""
+        bits.append(f"{f['selector']}{at}")
+    ov = f.get("overflow")
+    ov = ov if isinstance(ov, dict) else {}
+    spill = [f"{k[0].upper()}{round(float(v))}" for k, v in
+             sorted(ov.items()) if isinstance(v, (int, float)) and v > 0]
+    if spill:
+        bits.append("over by " + "/".join(spill) + "px")
+    for k in ("time", "firstSeen"):
+        if isinstance(f.get(k), (int, float)):
+            bits.append(f"at {float(f[k]):.2f}s")
+            break
+    return f"  [{'; '.join(bits)}]" if bits else ""
+
+
 def composition_check(project):
     """`hyperframes check --json` as part of the gate.
 
@@ -100,7 +125,7 @@ def composition_check(project):
             lvl = "ERROR" if sev == "error" else "WARN"
             code = f.get("code") or section
             findings.append((lvl, f"check:{section}",
-                             f"{code}: {(f.get('message') or '')[:400]}"))
+                             f"{code}: {(f.get('message') or '')[:400]}{_where(f)}"))
     if res.get("ok") is False and not any(l == "ERROR" for l, _, _ in findings):
         findings.append(("ERROR", "check", "hyperframes check reported not ok"))
 
