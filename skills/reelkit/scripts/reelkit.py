@@ -21,7 +21,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    canvas_image_box, wants_plate, head_rect, head_clear_y,
                    HEAD_MARGIN)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
-import audiomix, captionfx, pip as pipmod, progress as pgmod, style  # noqa: E402
+import audiomix, captionfx, lottiefx, pip as pipmod, progress as pgmod, style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -173,6 +173,10 @@ background:linear-gradient(180deg,rgba(5,6,10,0) 0%,rgba(5,6,10,.30) 45%,rgba(5,
 /* The detonated keyword is SVG text fitted with textLength, so it cannot
    overflow the canvas or be clipped in either direction. */
 .cdet{{display:block;width:100%;height:100%;overflow:visible;}}
+/* A Lottie badge is a positioned overlay like any other, and its box is fixed
+   so the player cannot resize the layout mid-render. */
+.lbadge{{position:absolute;pointer-events:none;}}
+.lbadge svg{{width:100%;height:100%;display:block;}}
 /* Progress-dim: the spoken section is lit, the covered ones dim behind it.
    Dimming is opacity and colour only - a filter would be the obvious way to
    grey a row out and it is also the one that spends the heavy-overlay budget. */
@@ -1097,6 +1101,49 @@ def build(project, _layouts=None, _pass=1):
             tls.append(f"tl.to({sel},{{opacity:0,duration:{out_dur},ease:'power2.in'}},{out_at});")
             tls.append(f"tl.set({sel},{{visibility:'hidden'}},{e});")
 
+    # Lottie badges. Validated (licence recorded, no gradients/masks, no external
+    # assets) before anything is staged, so a bad asset fails the build rather
+    # than the render.
+    badge_html, badge_js, badge_names = [], [], []
+    for b in plan["beats"]:
+        bd = b.get("badge")
+        if not bd:
+            continue
+        if isinstance(bd, str):
+            bd = {"name": bd}
+        name = bd.get("name")
+        if not name:
+            die(f"beat {b['id']}: badge needs a `name`")
+        bad = sorted(set(bd) - {"name", "corner", "size", "at"})
+        if bad:
+            die(f"beat {b['id']}: unknown badge key(s) {', '.join(bad)} "
+                "(allowed: name, corner, size, at)")
+        lottiefx.load(SKILL, name)          # raises on licence / cost / shape
+        html, js = lottiefx.markup(b["id"], name, bd, W, H)
+        st_b, en_b = float(b["start"]), float(b["end"])
+        badge_html.append(f'<div class="clip" data-start="{st_b:.4f}" '
+                          f'data-duration="{en_b - st_b:.4f}" data-track-index="4">{html}</div>')
+        badge_js.append(js)
+        badge_names.append(name)
+        g_at = an.q(st_b + float(bd.get("at", 0.12)))
+        tls.append(f"tl.fromTo('#{b['id']}-badge',{{opacity:0,scale:0.7}},"
+                   f"{{opacity:1,scale:1,duration:0.34,ease:'back.out(2)',"
+                   f"immediateRender:false}},{g_at});")
+    if badge_names:
+        # Staged at BUILD time, not scaffold: a project scaffolded before badges
+        # existed would otherwise reference a player that is not there, and the
+        # failure would only appear at render.
+        os.makedirs(os.path.join(pub, "vendor"), exist_ok=True)
+        src_player = os.path.join(SKILL, "assets", "vendor", "lottie.min.js")
+        if not os.path.exists(src_player):
+            die("badges are declared but assets/vendor/lottie.min.js is missing - "
+                "the player is vendored, never fetched at render time")
+        shutil.copy2(src_player, os.path.join(pub, "vendor", "lottie.min.js"))
+    for name in sorted(set(badge_names)):
+        os.makedirs(os.path.join(pub, "lottie"), exist_ok=True)
+        shutil.copy2(os.path.join(SKILL, "assets", "lottie", f"{name}.json"),
+                     os.path.join(pub, "lottie", f"{name}.json"))
+
     sfx_tags, sfx_names = resolve_sfx(plan, pub, dur, an)
 
     # ---- document ---------------------------------------------------------
@@ -1141,7 +1188,10 @@ def build(project, _layouts=None, _pass=1):
 {"".join(sfx_tags)}{music_tag(plan, pub, dur, voice_envelope(project))}
 <div class="bottomveil"></div>
 {"".join(hosts)}
+{"".join(badge_html)}
 <script src="vendor/gsap.min.js"></script>
+{'<script src="vendor/lottie.min.js"></script>' if badge_js else ''}
+{('<script>' + "".join(badge_js) + '</script>') if badge_js else ''}
 <script>
 (function(){{
 var tl = window.gsap.timeline({{paused:true}});
@@ -2010,6 +2060,11 @@ def scaffold(project, video, fps, width, height, upscale):
     gs = os.path.join(SKILL, "assets", "vendor", "gsap.min.js")
     if os.path.exists(gs):
         shutil.copy2(gs, os.path.join(pub, "vendor", "gsap.min.js"))
+    # The Lottie player and every badge are vendored, never hotlinked: a render
+    # kernel may have no egress, and a CDN fetch is also an unaccounted licence.
+    lt = os.path.join(SKILL, "assets", "vendor", "lottie.min.js")
+    if os.path.exists(lt):
+        shutil.copy2(lt, os.path.join(pub, "vendor", "lottie.min.js"))
     else:
         for cand in (os.path.expanduser("~/.claude/skills/talking-head-recut/assets/vendor/gsap.min.js"),
                      os.path.expanduser("~/.agents/skills/talking-head-recut/assets/vendor/gsap.min.js")):
