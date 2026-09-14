@@ -287,6 +287,23 @@ def run(project, as_json, fix):
     findings.extend(style.pacing_findings(sty, plan))
     findings.extend(style.doodle_findings(sty, plan))
 
+    # The caption band against the head. Doctrine, not style: no overlay,
+    # sticker, badge or caption touches the face, so this is an ERROR at every
+    # profile and is not configurable. It matters more now that a detonated
+    # keyword fills the band - a treatment that big meeting a close framing is
+    # exactly the failure this rule exists for.
+    for b in plan["beats"]:
+        f = faces.get(b["id"])
+        if not f:
+            continue
+        hb = head_rect(f)[1] + head_rect(f)[3]
+        if cap_on and cap_top < hb:
+            findings.append(("ERROR", b["id"],
+                             f"the caption band starts at y={cap_top} but the head reaches "
+                             f"y={hb:.0f} - captions would sit on the speaker's face. Move "
+                             f"captions.top below {hb:.0f}, or reframe the shot."))
+            break
+
     # The heavy-overlay budget. Free (static parse, no browser) and fail-closed:
     # past ~40 such elements the capture layer renders the first half of the
     # video solid black with no error anywhere, so it is an ERROR, not advice.

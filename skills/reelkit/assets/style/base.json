@@ -4,7 +4,8 @@
   "brand": "default",
   "captions": {
     "maxWords": 3,
-    "maxChars": 15
+    "maxChars": 15,
+    "strokeWidth": 0
   },
   "motion": {
     "defaults": {

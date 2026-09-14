@@ -4,7 +4,15 @@
   "extends": "base",
   "brand": "assaf",
   "captions": {
-    "maxWords": 2
+    "maxWords": 2,
+    "strokeWidth": 9,
+    "strokeColor": "#05060A",
+    "maxDetonations": 3,
+    "detonate": {
+      "fromScale": 0.62,
+      "duration": 0.42,
+      "ease": "back.out(2.4)"
+    }
   },
   "motion": {
     "kinds": {
