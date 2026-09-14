@@ -46,6 +46,10 @@ MAX_LIFT_DB = 24.0
 # loop capped at 1.0 and stalled 9 dB short of the bar with every cue clamped.
 # The master limiter below is what keeps the sum honest.
 MAX_VOLUME = 8.0
+# The dry retry fights no duck, so it may reach higher; the master limiter
+# still guards the sum. Measured: lift scales ~0.4 dB per dB of dry gain in
+# the band where voice and cue overlap, so headroom here must be generous.
+FALLBACK_MAX_VOLUME = 16.0
 MIN_VOLUME = 0.02
 MASTER_LIMIT = 0.95
 # Where a cue sits relative to the voice across the reel before any per-cue
@@ -225,14 +229,38 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
             gain, _ = loudness.needed_gain_db(
                 loudness.asset_bands(c["path"], off),
                 loudness.voice_floor(ref, r["at"]),
-                target=loudness.AUDIBLE_MIN + 1.0)
-            c["volume"] = round(max(MIN_VOLUME, min(MAX_VOLUME, 10 ** (gain / 20.0))), 4)
+                target=loudness.AUDIBLE_MIN + 2.0)
+            c["volume"] = round(max(MIN_VOLUME, min(FALLBACK_MAX_VOLUME,
+                                                    10 ** (gain / 20.0))), 4)
             c["bypassDuck"] = True
             log(f"reelkit audio: bypassing duck for {c['src']} at {r['at']:.2f}s "
-                f"after failing at max volume; reset volume to {c['volume']:.4f}")
+                f"after the lift loop left it inaudible; dry volume "
+                f"{c['volume']:.4f}")
         if fallback:
-            _render(video_in, source_audio, cue_list, out, voice, duck, log, quiet=True)
+            _render(video_in, source_audio, cue_list, out, voice, duck, log,
+                    quiet=True)
             rows = measure(out, ref, cue_list)
+            # The dry-gain estimate reads the asset and the voice floor, not
+            # the encoded mix; speech dynamics move the real floor by a few
+            # dB. Top up from the MEASURED shortfall, generously because the
+            # band lift grows sub-linearly once the cue already shows.
+            for _ in range(2):
+                short = [(c, r) for c, r in zip(cue_list, rows)
+                         if c.get("bypassDuck") and not r.get("skipped")
+                         and r["headroomDb"] < loudness.AUDIBLE_MIN
+                         and c["volume"] < FALLBACK_MAX_VOLUME]
+                if not short:
+                    break
+                for c, r in short:
+                    need = (loudness.AUDIBLE_MIN + 1.0 - r["headroomDb"]) * 2.0
+                    c["volume"] = round(min(FALLBACK_MAX_VOLUME,
+                                            c["volume"] * 10 ** (need / 20.0)), 4)
+                    log(f"reelkit audio: topping up {c['src']} at "
+                        f"{r['at']:.2f}s to {c['volume']:.4f} "
+                        f"(measured {r['headroomDb']:+.1f} dB)")
+                _render(video_in, source_audio, cue_list, out, voice, duck,
+                        log, quiet=True)
+                rows = measure(out, ref, cue_list)
         return _finish(out, ref, cue_list, rows, log)
     finally:
         if os.path.exists(ref):
