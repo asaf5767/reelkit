@@ -7,6 +7,17 @@ __pycache__/
 
 # the bundled CC0 sfx pack is source, not generated media
 !skills/reelkit/assets/sfx/*.mp3
+
+# A reel's MEDIA is generated and stays out; its PLAN is source and the thing
+# reviews argue about, so it is tracked. `videos/next/plan.json` was asked for
+# as a deliverable and could not have been committed without this.
+!videos/
+videos/*
+!videos/*/
+videos/*/*
+!videos/*/plan.json
+!videos/*/plan.*.json
+!videos/*/README.md
 checkpoints/
 
 # measurement + frame-count caches: derived, per-project, never source
