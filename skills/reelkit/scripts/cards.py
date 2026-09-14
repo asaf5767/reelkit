@@ -669,6 +669,38 @@ def k_canvas(cid, d, br, an, st, en):
     return f'<div class="cpane">{block}<div class="cmedia">{frame}{cap}</div></div>', g
 
 
+def k_outro(cid, d, br, an, st, en):
+    """The branded end card: dark ground, product lockup, a URL pill, a CTA.
+
+    A gradient is the one heavy-overlay element in the whole style system, so it
+    is a plain two-stop linear gradient - linear is not in the heavy pattern that
+    turns a render black, radial is. One card, one gradient, once per reel.
+    """
+    D = DIR(br); A = _mk(br); g = []
+    name = str(d.get("product") or "").strip()
+    if not name:
+        raise SystemExit(f"reelkit: outro {cid} needs `product`")
+    kind_ = str(d.get("type") or "").strip()
+    url = str(d.get("url") or "").strip()
+    cta = str(d.get("cta") or "").strip()
+    acc = d.get("accentColor") or A(0)
+
+    rows = [f'<div class="oname" id="{cid}-on">{esc(name)}</div>']
+    if kind_:
+        rows.append(f'<div class="otype" id="{cid}-ot">{esc(kind_)}</div>')
+    if url:
+        rows.append(f'<div class="opill" id="{cid}-ou" style="--oacc:{acc}">{esc(url)}</div>')
+    if cta:
+        rows.append(f'<div class="octa" id="{cid}-oc">{esc(cta)}</div>')
+    body = f'<div class="outro" dir="{D}">{"".join(rows)}</div>'
+
+    g.append(an.fade(S(cid, f"{cid}-on"), st + 0.06, 0.34))
+    if kind_: g.append(an.slide(S(cid, f"{cid}-ot"), st + 0.22, 0.30, dy=14))
+    if url:   g.append(an.pop(S(cid, f"{cid}-ou"), st + 0.40, 0.38))
+    if cta:   g.append(an.fade(S(cid, f"{cid}-oc"), st + 0.62, 0.34))
+    return body, g
+
+
 def k_lockup(cid, d, br, an, st, en):
     """The title lockup - a bold sans line, a script accent line, one accent.
 
@@ -826,5 +858,5 @@ KINDS = {
     "hero": k_hero, "notification": k_notification, "chat": k_chat, "code": k_code,
     "diff": k_diff, "checklist": k_checklist, "donut": k_donut, "bars": k_bars,
     "pipeline": k_pipeline, "contrast": k_contrast, "chips": k_chips, "stat": k_stat,
-    "follow": k_follow, "doodle": k_doodle, "lockup": k_lockup, "image": k_image, "canvas": k_canvas,
+    "follow": k_follow, "doodle": k_doodle, "lockup": k_lockup, "outro": k_outro, "image": k_image, "canvas": k_canvas,
 }

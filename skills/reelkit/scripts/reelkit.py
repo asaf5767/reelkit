@@ -21,7 +21,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    canvas_image_box, wants_plate, head_rect, head_clear_y,
                    HEAD_MARGIN)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
-import audiomix, captionfx, style  # noqa: E402
+import audiomix, captionfx, pip as pipmod, style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -148,6 +148,8 @@ def theme_css(br, capcfg=None, titlecfg=None):
 html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:{br['bg']};
 font-family:'{br['font']}','{br['latinFont']}',ui-sans-serif,system-ui,sans-serif;}}
 #stage{{position:relative;width:100%;height:100%;overflow:hidden;}}
+#pip-frame{{position:absolute;left:0;top:0;width:100%;height:100%;
+ transform-origin:0 0;overflow:hidden;will-change:transform;}}
 .video-wrapper{{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;}}
 .video-wrapper video{{width:100%;height:100%;object-fit:cover;}}
 .bottomveil{{position:absolute;left:0;right:0;bottom:0;height:430px;
@@ -171,6 +173,20 @@ background:linear-gradient(180deg,rgba(5,6,10,0) 0%,rgba(5,6,10,.30) 45%,rgba(5,
 /* The detonated keyword is SVG text fitted with textLength, so it cannot
    overflow the canvas or be clipped in either direction. */
 .cdet{{display:block;width:100%;height:100%;overflow:visible;}}
+/* The branded end card. A LINEAR gradient only: radial-gradient is in the
+   heavy-overlay pattern that turns a render black, linear is not. One card,
+   one gradient, once per reel. */
+/* Not absolutely positioned: an absolute box resolves against whichever
+   ancestor happens to be positioned, which measured the card outside the canvas.
+   A plain full-size block is measured where it actually is. */
+.outro{{width:100%;height:100%;min-height:100%;display:flex;flex-direction:column;
+ gap:22px;align-items:center;justify-content:center;text-align:center;
+ background:linear-gradient(180deg,#0B0D12 0%,#161A23 100%);}}
+.outro .oname{{font-size:104px;font-weight:900;letter-spacing:-.02em;opacity:0;}}
+.outro .otype{{font-size:40px;font-weight:600;opacity:0;color:#AEB4C0;}}
+.outro .opill{{font-size:38px;font-weight:800;opacity:0;color:#0B0D12;
+ background:var(--oacc);border-radius:999px;padding:14px 38px;}}
+.outro .octa{{font-size:34px;font-weight:600;opacity:0;color:#E7EAF0;}}
 /* Title lockup: a bold sans line, a script accent line, ONE accent. Emphasis is
    type and a single flat colour - no glowing container, nothing that spends the
    heavy-overlay budget. */
@@ -201,7 +217,7 @@ text-shadow:0 4px 22px rgba(0,0,0,.9),0 2px 6px rgba(0,0,0,.95);}}
 """.strip()
 
 
-def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
+def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False, kind=""):
     D = br.get("_dir", "rtl"); START = "right" if D == "rtl" else "left"
     P = f'.card[data-card-id="{cid}"]'
     A = br["accents"]
@@ -213,9 +229,13 @@ def card_css(cid, mode, br, layout=None, canvas_h=0, fit="wide", cimg=False):
     # now hugs the top edge, which is the only place a card can live without
     # touching him; the modes differ in how much room the card takes, not in how
     # far down it starts. `full` is B-roll and owns the frame, so it centres.
-    pad = (f"{int(top)}px 0 0 0" if top is not None
+    # The end card owns the whole frame like `full` B-roll does: it is the last
+    # thing on screen and nothing plays behind it, so a top inset would leave a
+    # band of footage above the gradient and push the card off the canvas.
+    owns_frame = mode == "full" or kind == "outro"
+    pad = (f"{int(top)}px 0 0 0" if top is not None and not owns_frame
            else ("150px 0 0 0" if mode == "stage"
-                 else ("0px 0 0 0" if mode == "full" else "120px 0 0 0")))
+                 else ("0px 0 0 0" if owns_frame else "120px 0 0 0")))
     if mode == "split":
         pad = "0"      # the canvas owns the upper band and carries its own surface
     # A card that cannot fit above the head has one mechanical remedy short of
@@ -713,6 +733,14 @@ def build(project, _layouts=None, _pass=1):
                    f"{{scale:{round(base*float(p['to']),4)},duration:{p.get('dur',0.9)},"
                    f"ease:'power2.inOut'}},{an.q(p['at'])});")
 
+    # PiP: the head insets to a corner for the beat and returns. The framing
+    # scale stays on #video-wrap, so the two transforms compose instead of
+    # fighting each other.
+    for b in plan["beats"]:
+        if b.get("mode") == "pip":
+            tls.extend(pipmod.tweens(b["id"], W, H, float(b["start"]), float(b["end"]),
+                                     an, pip=b.get("pip")))
+
     # ---- static checks before anything is written -------------------------
     warn = []
     srt = sorted(plan["beats"], key=lambda b: float(b["start"]))
@@ -721,8 +749,14 @@ def build(project, _layouts=None, _pass=1):
     # or demonstrates the spoken claim. Decorative images stay small, or go.
     for b in srt:
         mode = b.get("mode", "top")
-        if mode not in ("top", "stage", "split", "full"):
+        if mode not in ("top", "stage", "split", "full", "pip"):
             die(f"beat {b.get('id','?')}: unknown mode {mode!r}")
+        if mode == "pip":
+            # Face full frame is the default; PiP is the justified exception.
+            bad = pipmod.problems(b, W, H, int(plan.get("captions", {}).get(
+                "top", br["captionTop"])), plan.get("captions", {}).get("enabled", True))
+            if bad:
+                die(f"beat {b['id']}: " + "\n  ".join(m for _l, _i, m in bad))
         if mode == "full":
             if b.get("image"):
                 die(f"beat {b['id']}: full-screen still images are not allowed; "
@@ -924,7 +958,7 @@ def build(project, _layouts=None, _pass=1):
         if mode != "split" and wants_plate(kind, beat) and body:
             body = f'<div class="plate" id="{cid}-plate">{body}</div>'
         frag = (f'<div class="card" data-card-id="{cid}">\n<style>\n'
-                f'{card_css(cid, mode, br, beat.get("layout"), canvas_h, cfit, bool(cimg))}\n</style>\n'
+                f'{card_css(cid, mode, br, beat.get("layout"), canvas_h, cfit, bool(cimg), kind)}\n</style>\n'
                 f'<div class="root">{ground}{body}</div>\n</div>')
         open(os.path.join(pub, "cards", f"{cid}.html"), "w", encoding="utf-8").write(frag)
 
@@ -1073,9 +1107,9 @@ def build(project, _layouts=None, _pass=1):
 <body>
 <div id="stage" data-composition-id="reelkit" data-start="0"
  data-duration="{dur}" data-fps="{fps}" data-width="{W}" data-height="{H}">
-<div class="video-wrapper" id="video-wrap">
+<div id="pip-frame"><div class="video-wrapper" id="video-wrap">
 <video id="bg-video" src="input-video.mp4" muted playsinline data-start="0"
- data-duration="{dur}" data-track-index="1"></video></div>
+ data-duration="{dur}" data-track-index="1"></video></div></div>
 <audio id="source-audio" src="input-video.mp4" data-start="0" data-duration="{dur}"
  data-track-index="10" data-volume="{plan.get('audio',{}).get('sourceVolume',1)}"></audio>
 {"".join(sfx_tags)}{music_tag(plan, pub, dur, voice_envelope(project))}
