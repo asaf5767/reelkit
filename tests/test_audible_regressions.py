@@ -108,7 +108,8 @@ class AudibilityRegressions(unittest.TestCase):
             rows = audiomix.prove(out, voice, audiomix.cues(directory),
                                  log=lambda *args: None)
             self.assertTrue(all(r['headroomDb'] >= loudness.AUDIBLE_MIN for r in rows))
-            self.assertLessEqual(len(renders), 5)  # Four normal mixes plus one fallback.
+            self.assertLessEqual(len(renders), 7)  # Four normal mixes, one
+            # fallback render, up to two measured top-ups.
             self.assertEqual(sum(bool(cs[1].get('bypassDuck')) for cs in renders), 1)
             self.assertLess(renders[-1][1]['volume'], audiomix.MAX_VOLUME)
             self.assertFalse(renders[-1][0].get('bypassDuck', False))
