@@ -209,9 +209,14 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
                 break
             log(f"reelkit audio: lifting {changed} cue(s) and re-mixing")
 
+        # The duck eats lifts (an 8:1 sidechain passes ~1/8 of each gain), so a
+        # stuck cue can stay below MAX_VOLUME through every lift round - the
+        # ceiling is not the signal that the loop has failed, the still-failing
+        # measurement is. Any in-range cue under the bar after the lift loop
+        # gets one measured dry retry.
         fallback = [(c, r) for c, r in zip(cue_list, rows)
                     if (duck or {}).get("enabled") and not c.get("bypassDuck")
-                    and not r.get("skipped") and c["volume"] >= MAX_VOLUME
+                    and not r.get("skipped")
                     and r["headroomDb"] < loudness.AUDIBLE_MIN]
         for c, r in fallback:
             # Reset the accumulated duck compensation. Estimate only the dry
@@ -219,7 +224,8 @@ def mix(project, video_in, source_audio, out, voice=None, duck=None, log=print):
             off = max(0.0, r["at"] - float(c["start"]))
             gain, _ = loudness.needed_gain_db(
                 loudness.asset_bands(c["path"], off),
-                loudness.voice_floor(ref, r["at"]), target=loudness.AUDIBLE_MIN)
+                loudness.voice_floor(ref, r["at"]),
+                target=loudness.AUDIBLE_MIN + 1.0)
             c["volume"] = round(max(MIN_VOLUME, min(MAX_VOLUME, 10 ** (gain / 20.0))), 4)
             c["bypassDuck"] = True
             log(f"reelkit audio: bypassing duck for {c['src']} at {r['at']:.2f}s "
