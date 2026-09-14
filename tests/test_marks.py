@@ -149,3 +149,25 @@ class MarkBudget(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main()
+
+class MarksOnArtifacts(unittest.TestCase):
+
+    def build(self, kind, data):
+        import reelkit
+        br=dict(reelkit.DEFAULT_BRAND); br['_dir']='ltr'; br['_canvasImg']=True
+        return cards.KINDS[kind]('b01',data,br,cards.Anim(30),0.6,3.8)
+
+    def test_stat_can_carry_drawn_marks_without_second_beat(self):
+        body,g=self.build('stat',{'from':0,'to':100,'unit':'AI','marks':[{'mark':'circle-scribble'}]})
+        self.assertIn('class="dmarks"',body); self.assertIn('b01-mk0',body)
+        self.assertEqual(sum('strokeDashoffset' in x for x in g),1)
+
+    def test_image_can_carry_arrow_and_underline(self):
+        body,g=self.build('image',{'caption':'Video','marks':[{'mark':'curved-arrow'},{'mark':'underline'}]})
+        self.assertIn('b01-mk0',body); self.assertIn('b01-mk1',body)
+        self.assertEqual(sum('strokeDashoffset' in x for x in g),2)
+
+class ResolverKeepsImageMarks(unittest.TestCase):
+    def test_image_replace_path_forwards_marks(self):
+        src=(ROOT/'skills/reelkit/scripts/reelkit.py').read_text()
+        self.assertIn('"marks": beat.get("data", {}).get("marks", [])',src)
