@@ -59,10 +59,12 @@ def problems(beat, W, H, cap_top, cap_on=True):
         out.append(("ERROR", bid,
                     f"`justification` is {len(just)} characters - name what is on screen, "
                     "not a placeholder."))
-    if not (beat.get("broll") or {}).get("src"):
-        out.append(("ERROR", bid,
-                    "a pip beat needs `broll.src`: the artifact fills the frame while the "
-                    "speaker insets. Without it there is nothing to cut to."))
+    # `broll.src` used to be REQUIRED here and read nowhere: the renderer drew
+    # the card body and never touched it, so the gate demanded a key the build
+    # ignored. It is read now (it becomes the full-frame ground, the same path
+    # `full` uses) and is therefore optional - a pip beat whose card IS the
+    # artifact does not need one. What stays mandatory is the justification,
+    # because that is the doctrine: a cut nobody can justify is decoration.
     corner = pip.get("corner", DEFAULT_CORNER)
     scale = float(pip.get("scale", DEFAULT_SCALE))
     if corner in CORNERS and cap_on and not clears_captions(W, H, cap_top, scale, corner):
@@ -92,3 +94,74 @@ def tweens(bid, W, H, st, en, an, sel="'#pip-frame'", pip=None):
            f"{{scale:1,x:0,y:0,borderRadius:0,duration:{dur},ease:'power3.inOut',"
            f"immediateRender:false}},{an.q(max(st + dur, en - dur))});"]
     return out
+
+
+def map_rect(rect, W, H, scale=DEFAULT_SCALE, corner=DEFAULT_CORNER, margin=MARGIN):
+    """A full-frame rect as it lands on screen once the head insets.
+
+    The wrapper scales from its own top-left and is then translated to the
+    inset's origin, so a point p maps to (inset.x + p.x*s, inset.y + p.y*s).
+    Exact, not conservative: the head occupies PART of the inset, and treating
+    the whole inset as head zone would forbid layouts that are actually clear.
+    """
+    x, y, _w, _h = inset_rect(W, H, scale, corner, margin)
+    rx, ry, rw, rh = rect
+    return (x + rx * scale, y + ry * scale, rw * scale, rh * scale)
+
+
+def head_zone(head, W, H, pip=None):
+    """Where the speaker's head really is during a pip beat, or None.
+
+    This is the whole reason a pip beat cannot be gated like any other. verify
+    measures the head in the SOURCE footage - its full-frame position - and a
+    pip beat's entire point is that the head is not there: it has insetted to a
+    corner. Gating a pip artifact against the full-frame head forbids the frame
+    the mode exists to give you, which is exactly what it did on v33.
+    """
+    if not head:
+        return None
+    pip = pip or {}
+    return map_rect(head, W, H, float(pip.get("scale", DEFAULT_SCALE)),
+                    pip.get("corner", DEFAULT_CORNER))
+
+
+# The inset always hides scale^2 of the frame - 9% at the default 0.30 - and on
+# a full-bleed artifact that is inherent to picture-in-picture, not a defect.
+# What is a defect is the inset sitting on a SMALL artifact, so the threshold is
+# set well clear of the inherent figure.
+OCCLUSION_WARN = 12
+OCCLUSION_MAX = 25
+
+
+def occlusion(box, W, H, pip=None):
+    """How much of the artifact the head inset covers, as a % of the artifact."""
+    if not box:
+        return None
+    pip = pip or {}
+    ix, iy, iw, ih = inset_rect(W, H, float(pip.get("scale", DEFAULT_SCALE)),
+                               pip.get("corner", DEFAULT_CORNER))
+    ox = max(0.0, min(box["x"] + box["w"], ix + iw) - max(box["x"], ix))
+    oy = max(0.0, min(box["y"] + box["h"], iy + ih) - max(box["y"], iy))
+    area = float(box["w"]) * float(box["h"])
+    return round(100.0 * ox * oy / area, 1) if area > 0 else None
+
+
+def artifact_findings(bid, box, W, H, pip=None):
+    """The artifact against the inset that sits on top of it.
+
+    The artifact renders UNDER the inset, so this is not a face-zone finding -
+    the face is never covered. It is a content finding: an artifact hiding
+    behind the speaker's head is an artifact nobody can read.
+    """
+    o = occlusion(box, W, H, pip)
+    if o is None:
+        return []
+    corner = (pip or {}).get("corner", DEFAULT_CORNER)
+    if o >= OCCLUSION_MAX:
+        return [("ERROR", bid,
+                 f"the head inset covers {o}% of the artifact - it is behind the "
+                 f"speaker rather than beside him. Move the inset to another corner "
+                 f"(currently {corner}), shrink it, or give the artifact less width.")]
+    if o >= OCCLUSION_WARN:
+        return [("WARN", bid, f"the head inset covers {o}% of the artifact")]
+    return []

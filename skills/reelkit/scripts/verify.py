@@ -27,7 +27,7 @@ from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
                    head_rect, head_clear_y)  # noqa: E402
 from reelkit import container_problems  # noqa: E402
 from geometry import measure_cards, SCALE_FLOOR, HAVE_PW  # noqa: E402
-import heavy, mcache, style  # noqa: E402
+import heavy, mcache, pip as pipmod, style  # noqa: E402
 from reelkit import HF  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -277,7 +277,25 @@ def run(project, as_json, fix):
             if box["x"] < -2 or box["y"] < -2 or box["x"] + box["w"] > W + 2 or box["y"] + box["h"] > H + 2:
                 findings.append(("ERROR", cid, "card extends outside the canvas - content will be clipped"))
             hr = head_rect(face) if face else None
-            if hr and mode != "full":
+            if mode == "pip":
+                # A pip beat is gated against the INSET, not the full-frame
+                # head. verify measures the head where it sits in the source
+                # footage, and a pip beat's whole point is that the head is not
+                # there any more - it has insetted to a corner and the artifact
+                # has the frame. Gating the artifact against the full-frame head
+                # demanded it end above a line that is free at render time, which
+                # made pip plus any artifact very nearly impossible (v33).
+                #
+                # The face-zone law is not relaxed, it is satisfied differently:
+                # the artifact renders UNDER the inset, so the face is on top of
+                # it and cannot be covered. What remains to check is the artifact
+                # being unreadable behind the speaker, which is a content rule.
+                zone = pipmod.head_zone(hr, W, H, b.get("pip")) if hr else None
+                if zone:
+                    row["headInInset"] = [round(v) for v in zone]
+                row["insetOcclusionPct"] = pipmod.occlusion(box, W, H, b.get("pip"))
+                findings.extend(pipmod.artifact_findings(cid, box, W, H, b.get("pip")))
+            elif hr and mode != "full":
                 # One rule for every mode that plays over live footage: the
                 # whole head stays clear. No mode dims the speaker any more, so
                 # there is no longer a mode in which covering him is "intended"
@@ -304,6 +322,12 @@ def run(project, as_json, fix):
                     findings.append(("ERROR", cid, f"card overlaps the caption band by {co}%"))
                 elif co >= 2:
                     findings.append(("WARN", cid, f"card grazes the caption band ({co}%)"))
+        elif (b.get("broll") or {}).get("src") and mode in ("full", "pip"):
+            # Not empty: the frame IS the picture. The box measurement skips
+            # `.broll` on purpose - it measures the content laid OVER the ground
+            # - so a beat whose whole artifact is its ground measures nothing and
+            # used to be reported as possibly blank.
+            row["ground"] = b["broll"]["src"]
         else:
             findings.append(("WARN", cid, "no measurable content - card may render empty"))
         report.append(row)
@@ -350,7 +374,13 @@ def run(project, as_json, fix):
         f = faces.get(b["id"])
         if not f:
             continue
-        hb = head_rect(f)[1] + head_rect(f)[3]
+        hr = head_rect(f)
+        if b.get("mode") == "pip":
+            # During a pip beat the head is in a top corner, nowhere near the
+            # band. Measuring its full-frame position here would refuse a band
+            # that is provably clear at render time.
+            hr = pipmod.head_zone(hr, W, H, b.get("pip"))
+        hb = hr[1] + hr[3]
         if cap_on and cap_top < hb:
             findings.append(("ERROR", b["id"],
                              f"the caption band starts at y={cap_top} but the head reaches "

@@ -77,5 +77,9 @@ Not now, but so the shape is on record:
 3. `segment_key()` must hash the manifest, exactly as it hashes the brand and
    style directories - swapping a clip changes pixels, and a cached segment that
    does not know is stale.
-4. The `pip` and `full` gates already require `broll.src`; a library clip is
-   just a resolved src, so no new gate is needed.
+4. `full` requires `broll.src`; `pip` reads it when present and falls back to
+   the beat's own card as the artifact. Either way a library clip is just a
+   resolved src, so no new gate is needed. One difference worth knowing when
+   tagging: `pip` accepts a still (png/jpg/webp) as well as video, because the
+   speaker stays on screen in the inset and a photo therefore cannot turn the
+   reel into a slideshow. `full` still takes moving footage only.
