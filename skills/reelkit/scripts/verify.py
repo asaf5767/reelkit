@@ -27,7 +27,7 @@ from cards import (split_canvas_h, split_canvas_h_face, face_safe_canvas_h,
                    head_rect, head_clear_y)  # noqa: E402
 from reelkit import container_problems  # noqa: E402
 from geometry import measure_cards, SCALE_FLOOR, HAVE_PW  # noqa: E402
-import heavy, mcache, style  # noqa: E402
+import heavy, mcache, progress as pgmod, style  # noqa: E402
 from reelkit import HF  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -315,6 +315,17 @@ def run(project, as_json, fix):
     sty, _prov = style.for_plan(plan)
     findings.extend(style.pacing_findings(sty, plan))
     findings.extend(style.doodle_findings(sty, plan))
+
+    # Lower-thirds live in the narrow band between the chin and the captions,
+    # and both neighbours move: a close framing lowers the head, a plan can
+    # raise the captions. Measured against the real numbers per beat, never
+    # assumed from a constant.
+    for b in plan["beats"]:
+        if b.get("kind") != "lowerthird":
+            continue
+        f = faces.get(b["id"])
+        hb = (head_rect(f)[1] + head_rect(f)[3]) if f else None
+        findings.extend(pgmod.band_problems(b["id"], H, cap_top, hb, cap_on))
 
     # The caption band against the head. Doctrine, not style: no overlay,
     # sticker, badge or caption touches the face, so this is an ERROR at every

@@ -21,7 +21,7 @@ from cards import (KINDS, Anim, esc, kinetic, icon,      # noqa: E402
                    canvas_image_box, wants_plate, head_rect, head_clear_y,
                    HEAD_MARGIN)
 from geometry import image_slot_box, fit_layout, measure_cards  # noqa: E402
-import audiomix, captionfx, pip as pipmod, style  # noqa: E402
+import audiomix, captionfx, pip as pipmod, progress as pgmod, style  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
@@ -173,6 +173,23 @@ background:linear-gradient(180deg,rgba(5,6,10,0) 0%,rgba(5,6,10,.30) 45%,rgba(5,
 /* The detonated keyword is SVG text fitted with textLength, so it cannot
    overflow the canvas or be clipped in either direction. */
 .cdet{{display:block;width:100%;height:100%;overflow:visible;}}
+/* Progress-dim: the spoken section is lit, the covered ones dim behind it.
+   Dimming is opacity and colour only - a filter would be the obvious way to
+   grey a row out and it is also the one that spends the heavy-overlay budget. */
+.progress{{display:flex;flex-direction:column;gap:18px;}}
+.progress .pgtitle{{font-size:44px;font-weight:800;opacity:0;color:#AEB4C0;}}
+.progress .pglist{{display:flex;flex-direction:column;gap:16px;}}
+.progress .pgrow{{display:flex;align-items:center;gap:18px;font-size:58px;
+ font-weight:800;line-height:1.15;}}
+.progress .pgnum{{flex:0 0 auto;min-width:1.7em;height:1.7em;border-radius:999px;
+ background:var(--pgacc);color:#0B0D12;font-size:.62em;font-weight:900;
+ display:inline-flex;align-items:center;justify-content:center;}}
+/* The lower-third band: a rule, a name, a role. No plate, no glow. */
+.lthird{{display:flex;align-items:stretch;gap:20px;}}
+.lthird .ltrule{{flex:0 0 10px;border-radius:999px;background:var(--ltacc);}}
+.lthird .lttext{{display:flex;flex-direction:column;gap:6px;justify-content:center;}}
+.lthird .ltname{{font-size:56px;font-weight:900;opacity:0;}}
+.lthird .ltrole{{font-size:34px;font-weight:600;opacity:0;color:#C8CEDA;}}
 /* The branded end card. A LINEAR gradient only: radial-gradient is in the
    heavy-overlay pattern that turns a render black, linear is not. One card,
    one gradient, once per reel. */
@@ -732,6 +749,15 @@ def build(project, _layouts=None, _pass=1):
         tls.append(f"tl.fromTo('#video-wrap',{{scale:{round(base*float(p['from']),4)}}},"
                    f"{{scale:{round(base*float(p['to']),4)},duration:{p.get('dur',0.9)},"
                    f"ease:'power2.inOut'}},{an.q(p['at'])});")
+
+    # Progress sections take their timing from the SPEECH. Resolved here, where
+    # the transcript is in hand, so the card builder stays a pure function of
+    # its data and a re-cut moves the sequence with it.
+    for b in plan["beats"]:
+        if b.get("kind") == "progress":
+            dd = b.setdefault("data", {})
+            dd["sections"] = pgmod.resolve_cues(dd.get("sections") or [], words,
+                                                float(b["start"]), float(b["end"]))
 
     # PiP: the head insets to a corner for the beat and returns. The framing
     # scale stays on #video-wrap, so the two transforms compose instead of

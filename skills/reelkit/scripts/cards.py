@@ -669,6 +669,66 @@ def k_canvas(cid, d, br, an, st, en):
     return f'<div class="cpane">{block}<div class="cmedia">{frame}{cap}</div></div>', g
 
 
+def k_progress(cid, d, br, an, st, en):
+    """The structure diagram: sections light as they are spoken, then dim.
+
+    Dimming is opacity and colour only. A filter would be the obvious way to
+    grey a section out and it is also the one that spends the heavy-overlay
+    budget, so this reads as dim without costing anything.
+
+    Section times are resolved from the transcript before the card is built, so
+    the sequence follows the speech rather than a typed timestamp that drifts
+    the moment the cut changes.
+    """
+    D = DIR(br); A = _mk(br); g = []
+    secs = d.get("sections") or []
+    if not secs:
+        raise SystemExit(f"reelkit: progress card {cid} has no sections")
+    title = str(d.get("title") or "").strip()
+    acc = d.get("accentColor") or A(0)
+    rows = []
+    for i, sec in enumerate(secs):
+        label = esc(str(sec.get("label", "")))
+        num = f'<span class="pgnum">{i + 1}</span>' if d.get("numbered", True) else ""
+        rows.append(f'<div class="pgrow" id="{cid}-pg{i}" style="--pgacc:{acc}">'
+                    f'{num}<span class="pgtxt">{label}</span></div>')
+    head = f'<div class="pgtitle" id="{cid}-pgt">{esc(title)}</div>' if title else ""
+    body = f'<div class="progress" dir="{D}">{head}<div class="pglist">{"".join(rows)}</div></div>'
+
+    if title:
+        g.append(an.fade(S(cid, f"{cid}-pgt"), st + 0.04, 0.30))
+    for i, sec in enumerate(secs):
+        sel = S(cid, f"{cid}-pg{i}")
+        at = an.q(float(sec.get("at", st)))
+        g.append(f"tl.set({sel},{{opacity:0.34,x:0}},{an.q(st)});")
+        g.append(f"tl.fromTo({sel},{{opacity:0.34}},{{opacity:1,duration:0.26,"
+                 f"ease:'power2.out',immediateRender:false}},{at});")
+        nxt = float(secs[i + 1]["at"]) if i + 1 < len(secs) else None
+        if nxt is not None:
+            g.append(f"tl.fromTo({sel},{{opacity:1}},{{opacity:0.26,duration:0.30,"
+                     f"ease:'power2.in',immediateRender:false}},{an.q(nxt)});")
+    return body, g
+
+
+def k_lowerthird(cid, d, br, an, st, en):
+    """Name and title, briefly, in the band between the chin and the captions."""
+    D = DIR(br); A = _mk(br); g = []
+    name = str(d.get("name") or "").strip()
+    if not name:
+        raise SystemExit(f"reelkit: lower-third {cid} needs a `name`")
+    role = str(d.get("title") or d.get("role") or "").strip()
+    acc = d.get("accentColor") or A(0)
+    rows = f'<div class="ltname" id="{cid}-ltn">{esc(name)}</div>'
+    if role:
+        rows += f'<div class="ltrole" id="{cid}-ltr">{esc(role)}</div>'
+    body = (f'<div class="lthird" dir="{D}" style="--ltacc:{acc}">'
+            f'<span class="ltrule"></span><div class="lttext">{rows}</div></div>')
+    g.append(an.slide(S(cid, f"{cid}-ltn"), st + 0.06, 0.32, dx=(28 if D == "rtl" else -28)))
+    if role:
+        g.append(an.slide(S(cid, f"{cid}-ltr"), st + 0.18, 0.30, dx=(28 if D == "rtl" else -28)))
+    return body, g
+
+
 def k_outro(cid, d, br, an, st, en):
     """The branded end card: dark ground, product lockup, a URL pill, a CTA.
 
@@ -858,5 +918,6 @@ KINDS = {
     "hero": k_hero, "notification": k_notification, "chat": k_chat, "code": k_code,
     "diff": k_diff, "checklist": k_checklist, "donut": k_donut, "bars": k_bars,
     "pipeline": k_pipeline, "contrast": k_contrast, "chips": k_chips, "stat": k_stat,
-    "follow": k_follow, "doodle": k_doodle, "lockup": k_lockup, "outro": k_outro, "image": k_image, "canvas": k_canvas,
+    "follow": k_follow, "doodle": k_doodle, "lockup": k_lockup, "outro": k_outro,
+    "progress": k_progress, "lowerthird": k_lowerthird, "image": k_image, "canvas": k_canvas,
 }
